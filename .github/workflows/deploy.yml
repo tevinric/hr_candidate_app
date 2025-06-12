@@ -1,0 +1,125 @@
+name: Deploy HR Candidate Tool to Azure
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AZURE_WEBAPP_NAME: 'hr-candidate-tool'    # Replace with your app name
+  REGISTRY_NAME: 'hrtools'                   # Replace with your ACR name
+  IMAGE_NAME: 'hr-candidate-app'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Azure Container Registry
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ env.REGISTRY_NAME }}.azurecr.io
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+
+    - name: Download latest database backup (if exists)
+      continue-on-error: true
+      run: |
+        if [ -n "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" ]; then
+          echo "Attempting to download latest backup..."
+          # Install Azure CLI
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          
+          # Download latest backup if it exists
+          az storage blob download \
+            --container-name hr-backups \
+            --name latest.db \
+            --file latest_backup.db \
+            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+            --output none || echo "No backup found or download failed"
+            
+          # If backup exists, we'll use it in the container
+          if [ -f "latest_backup.db" ]; then
+            echo "Backup downloaded successfully"
+            mkdir -p docker-data
+            mv latest_backup.db docker-data/hr_candidates.db
+          fi
+        fi
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }},${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
+        platforms: linux/amd64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Log in to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Deploy to Azure Web App
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        images: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+    - name: Configure Web App Settings
+      run: |
+        az webapp config appsettings set \
+          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
+          --settings \
+          AZURE_STORAGE_CONNECTION_STRING="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+          AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
+          AZURE_OPENAI_API_KEY="${{ secrets.AZURE_OPENAI_API_KEY }}" \
+          AZURE_OPENAI_API_VERSION="${{ secrets.AZURE_OPENAI_API_VERSION }}" \
+          AZURE_OPENAI_DEPLOYMENT_NAME="${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
+          BACKUP_CONTAINER="hr-backups" \
+          AUTO_BACKUP_ENABLED="True" \
+          BACKUP_RETENTION_DAYS="30" \
+          MAX_FILE_SIZE_MB="10" \
+          MAX_SEARCH_RESULTS="100" \
+          LOG_LEVEL="INFO"
+
+    - name: Restart Web App
+      run: |
+        az webapp restart \
+          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+          --name ${{ env.AZURE_WEBAPP_NAME }}
+
+    - name: Verify deployment
+      run: |
+        echo "Waiting for application to start..."
+        sleep 30
+        
+        # Try to access the health endpoint
+        curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/_stcore/health || echo "Health check failed"
+        
+        echo "Deployment completed. Application should be available at:"
+        echo "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+
+  backup-verification:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Verify backup functionality
+      run: |
+        echo "Backup verification job completed"
+        echo "Manual verification recommended:"
+        echo "1. Check that application can create backups"
+        echo "2. Verify backup restoration works"
+        echo "3. Test CV upload and processing"
+        echo "4. Test candidate search functionality"

@@ -1,0 +1,23 @@
+# Core Streamlit and Python packages
+streamlit
+pandas
+numpy
+
+# PDF processing
+PyMuPDF
+
+# Azure services
+azure-storage-blob
+openai
+
+# Database
+#py-sqlite3  # Built-in with Python
+
+# Utilities
+python-dotenv
+requests
+
+# Optional: for enhanced functionality
+Pillow  # For image processing if needed
+plotly  # For enhanced charts
+python-dotenv

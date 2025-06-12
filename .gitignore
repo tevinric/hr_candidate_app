@@ -1,0 +1,5 @@
+/.venv
+/.env
+__pycache__/
+env_var_init.sh
+.venv/
