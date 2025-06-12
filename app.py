@@ -166,18 +166,47 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Initialize session state
-if 'extracted_data' not in st.session_state:
-    st.session_state.extracted_data = None
-if 'db_manager' not in st.session_state:
-    st.session_state.db_manager = DatabaseManager()
-if 'cv_processor' not in st.session_state:
-    st.session_state.cv_processor = CVProcessor()
-if 'show_overwrite_dialog' not in st.session_state:
-    st.session_state.show_overwrite_dialog = False
-if 'pending_candidate_data' not in st.session_state:
-    st.session_state.pending_candidate_data = None
-if 'existing_candidate_email' not in st.session_state:
-    st.session_state.existing_candidate_email = None
+def initialize_session_state():
+    """Initialize all session state variables"""
+    if 'extracted_data' not in st.session_state:
+        st.session_state.extracted_data = None
+    if 'cv_processed' not in st.session_state:
+        st.session_state.cv_processed = False
+    if 'db_manager' not in st.session_state:
+        st.session_state.db_manager = DatabaseManager()
+    if 'cv_processor' not in st.session_state:
+        st.session_state.cv_processor = CVProcessor()
+    if 'show_overwrite_dialog' not in st.session_state:
+        st.session_state.show_overwrite_dialog = False
+    if 'pending_candidate_data' not in st.session_state:
+        st.session_state.pending_candidate_data = None
+    if 'existing_candidate_email' not in st.session_state:
+        st.session_state.existing_candidate_email = None
+    
+    # Form data session states
+    if 'form_name' not in st.session_state:
+        st.session_state.form_name = ""
+    if 'form_email' not in st.session_state:
+        st.session_state.form_email = ""
+    if 'form_phone' not in st.session_state:
+        st.session_state.form_phone = ""
+    if 'form_current_role' not in st.session_state:
+        st.session_state.form_current_role = ""
+    if 'form_industry' not in st.session_state:
+        st.session_state.form_industry = ""
+    if 'form_notice_period' not in st.session_state:
+        st.session_state.form_notice_period = ""
+    if 'form_current_salary' not in st.session_state:
+        st.session_state.form_current_salary = ""
+    if 'form_desired_salary' not in st.session_state:
+        st.session_state.form_desired_salary = ""
+    if 'form_highest_qualification' not in st.session_state:
+        st.session_state.form_highest_qualification = ""
+    if 'form_special_skills' not in st.session_state:
+        st.session_state.form_special_skills = ""
+
+# Initialize session state
+initialize_session_state()
 
 def main():
     # Professional header
@@ -221,7 +250,8 @@ def upload_cv_tab():
         )
         st.markdown('</div>', unsafe_allow_html=True)
     
-    if uploaded_file is not None:
+    # Process CV only if file is uploaded and not already processed
+    if uploaded_file is not None and not st.session_state.cv_processed:
         with st.spinner("🔄 Processing CV... Please wait"):
             try:
                 # Save uploaded file temporarily
@@ -239,14 +269,18 @@ def upload_cv_tab():
                     with st.expander("📄 View Extracted Text", expanded=False):
                         st.text_area("Raw CV Text", extracted_text, height=200, disabled=True)
                     
-                    # Process with OpenAI
+                    # Process with OpenAI - THIS ONLY RUNS ONCE
                     with st.spinner("🤖 Analyzing CV with AI..."):
                         candidate_data = st.session_state.cv_processor.process_cv_with_openai(extracted_text)
                         
                         if candidate_data:
                             st.session_state.extracted_data = candidate_data
+                            st.session_state.cv_processed = True
+                            
+                            # Initialize form data from extracted data
+                            initialize_form_data(candidate_data)
+                            
                             st.markdown('<div class="success-message">✅ CV processed successfully with AI!</div>', unsafe_allow_html=True)
-                            show_candidate_form(candidate_data)
                         else:
                             st.markdown('<div class="error-message">❌ Failed to process CV with AI. Please try again.</div>', unsafe_allow_html=True)
                 
@@ -255,8 +289,36 @@ def upload_cv_tab():
                 
             except Exception as e:
                 st.markdown(f'<div class="error-message">❌ Error processing CV: {str(e)}</div>', unsafe_allow_html=True)
+    
+    # Show form if CV has been processed
+    if st.session_state.cv_processed and st.session_state.extracted_data:
+        show_candidate_form()
 
-def show_candidate_form(data):
+def initialize_form_data(data):
+    """Initialize form data from extracted CV data"""
+    # Initialize dynamic lists first
+    if 'qualifications_list' not in st.session_state:
+        st.session_state.qualifications_list = data.get('qualifications', [])
+    if 'skills_list' not in st.session_state:
+        st.session_state.skills_list = data.get('skills', [])
+    if 'experience_list' not in st.session_state:
+        st.session_state.experience_list = data.get('experience', [])
+    if 'achievements_list' not in st.session_state:
+        st.session_state.achievements_list = data.get('achievements', [])
+    
+    # Initialize form fields
+    st.session_state.form_name = data.get('name', '')
+    st.session_state.form_email = data.get('email', '')
+    st.session_state.form_phone = data.get('phone', '')
+    st.session_state.form_current_role = data.get('current_role', '')
+    st.session_state.form_industry = data.get('industry', '')
+    st.session_state.form_notice_period = data.get('notice_period', '')
+    st.session_state.form_current_salary = data.get('current_salary', '')
+    st.session_state.form_desired_salary = data.get('desired_salary', '')
+    st.session_state.form_highest_qualification = data.get('highest_qualification', '')
+    st.session_state.form_special_skills = data.get('special_skills', '')
+
+def show_candidate_form():
     st.markdown('<div class="section-header"><h2>📝 Review and Edit Candidate Information</h2></div>', unsafe_allow_html=True)
     st.markdown('<p style="color: #64748b; font-style: italic;">Please review the extracted information and make any necessary corrections before saving.</p>', unsafe_allow_html=True)
     
@@ -271,14 +333,38 @@ def show_candidate_form(data):
     col1, col2 = st.columns(2)
     
     with col1:
-        name = st.text_input("Full Name *", value=data.get('name', ''), key="name_input")
-        email = st.text_input("Email Address *", value=data.get('email', ''), key="email_input")
-        phone = st.text_input("Phone Number", value=data.get('phone', ''), key="phone_input")
+        st.session_state.form_name = st.text_input(
+            "Full Name *", 
+            value=st.session_state.form_name, 
+            key="name_input"
+        )
+        st.session_state.form_email = st.text_input(
+            "Email Address *", 
+            value=st.session_state.form_email, 
+            key="email_input"
+        )
+        st.session_state.form_phone = st.text_input(
+            "Phone Number", 
+            value=st.session_state.form_phone, 
+            key="phone_input"
+        )
         
     with col2:
-        current_role = st.text_input("Current Role", value=data.get('current_role', ''), key="role_input")
-        industry = st.text_input("Industry", value=data.get('industry', ''), key="industry_input")
-        notice_period = st.text_input("Notice Period", value=data.get('notice_period', ''), key="notice_input")
+        st.session_state.form_current_role = st.text_input(
+            "Current Role", 
+            value=st.session_state.form_current_role, 
+            key="role_input"
+        )
+        st.session_state.form_industry = st.text_input(
+            "Industry", 
+            value=st.session_state.form_industry, 
+            key="industry_input"
+        )
+        st.session_state.form_notice_period = st.text_input(
+            "Notice Period", 
+            value=st.session_state.form_notice_period, 
+            key="notice_input"
+        )
     st.markdown('</div>', unsafe_allow_html=True)
     
     # Salary Information
@@ -286,52 +372,58 @@ def show_candidate_form(data):
     st.markdown("### 💰 Salary Information")
     col3, col4 = st.columns(2)
     with col3:
-        current_salary = st.text_input("Current Salary", value=data.get('current_salary', ''), key="current_sal")
+        st.session_state.form_current_salary = st.text_input(
+            "Current Salary", 
+            value=st.session_state.form_current_salary, 
+            key="current_sal"
+        )
     with col4:
-        desired_salary = st.text_input("Desired Salary", value=data.get('desired_salary', ''), key="desired_sal")
+        st.session_state.form_desired_salary = st.text_input(
+            "Desired Salary", 
+            value=st.session_state.form_desired_salary, 
+            key="desired_sal"
+        )
     st.markdown('</div>', unsafe_allow_html=True)
     
     # Education
     st.markdown('<div class="form-section">', unsafe_allow_html=True)
     st.markdown("### 🎓 Education")
-    highest_qualification = st.text_input("Highest Qualification", value=data.get('highest_qualification', ''), key="highest_qual")
+    st.session_state.form_highest_qualification = st.text_input(
+        "Highest Qualification", 
+        value=st.session_state.form_highest_qualification, 
+        key="highest_qual"
+    )
     
-    # Handle Qualifications with dynamic UI
+    # Handle Qualifications with NO REFRESH
     st.markdown("**Detailed Qualifications:**")
-    qualifications_data = data.get('qualifications', [])
-    
-    # Initialize session state for qualifications if not exists
-    if 'qualifications_list' not in st.session_state:
-        st.session_state.qualifications_list = qualifications_data.copy() if qualifications_data else []
     
     # Display existing qualifications
     for i, qual in enumerate(st.session_state.qualifications_list):
-        with st.container():
-            col_qual1, col_qual2, col_qual3, col_qual4 = st.columns([3, 3, 2, 1])
-            with col_qual1:
-                st.session_state.qualifications_list[i]['qualification'] = st.text_input(
-                    f"Qualification {i+1}", 
-                    value=qual.get('qualification', ''),
-                    key=f"qual_{i}"
-                )
-            with col_qual2:
-                st.session_state.qualifications_list[i]['institution'] = st.text_input(
-                    f"Institution {i+1}", 
-                    value=qual.get('institution', ''),
-                    key=f"inst_{i}"
-                )
-            with col_qual3:
-                st.session_state.qualifications_list[i]['year'] = st.text_input(
-                    f"Year {i+1}", 
-                    value=qual.get('year', ''),
-                    key=f"year_{i}"
-                )
-            with col_qual4:
-                if st.button("🗑️", key=f"del_qual_{i}", help="Delete qualification"):
-                    st.session_state.qualifications_list.pop(i)
-                    st.rerun()
+        col_qual1, col_qual2, col_qual3, col_qual4 = st.columns([3, 3, 2, 1])
+        with col_qual1:
+            qual['qualification'] = st.text_input(
+                f"Qualification {i+1}", 
+                value=qual.get('qualification', ''),
+                key=f"qual_{i}"
+            )
+        with col_qual2:
+            qual['institution'] = st.text_input(
+                f"Institution {i+1}", 
+                value=qual.get('institution', ''),
+                key=f"inst_{i}"
+            )
+        with col_qual3:
+            qual['year'] = st.text_input(
+                f"Year {i+1}", 
+                value=qual.get('year', ''),
+                key=f"year_{i}"
+            )
+        with col_qual4:
+            if st.button("🗑️", key=f"del_qual_{i}", help="Delete qualification"):
+                st.session_state.qualifications_list.pop(i)
+                st.rerun()
     
-    if st.button("➕ Add Qualification"):
+    if st.button("➕ Add Qualification", key="add_qualification_btn"):
         st.session_state.qualifications_list.append({'qualification': '', 'institution': '', 'year': '', 'grade': ''})
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
@@ -339,36 +431,30 @@ def show_candidate_form(data):
     # Skills Section
     st.markdown('<div class="form-section">', unsafe_allow_html=True)
     st.markdown("### 🛠️ Skills")
-    skills_data = data.get('skills', [])
     
-    # Initialize session state for skills
-    if 'skills_list' not in st.session_state:
-        st.session_state.skills_list = skills_data.copy() if skills_data else []
-    
-    # Display skills in a more user-friendly way
+    # Display skills with NO REFRESH
     for i, skill in enumerate(st.session_state.skills_list):
-        with st.container():
-            col_skill1, col_skill2, col_skill3 = st.columns([4, 2, 1])
-            with col_skill1:
-                st.session_state.skills_list[i]['skill'] = st.text_input(
-                    f"Skill {i+1}", 
-                    value=skill.get('skill', ''),
-                    key=f"skill_{i}"
-                )
-            with col_skill2:
-                st.session_state.skills_list[i]['proficiency'] = st.selectbox(
-                    f"Level {i+1}",
-                    options=[1, 2, 3, 4, 5],
-                    index=min(skill.get('proficiency', 3) - 1, 4),
-                    format_func=lambda x: f"{x} - {'Beginner' if x==1 else 'Basic' if x==2 else 'Intermediate' if x==3 else 'Advanced' if x==4 else 'Expert'}",
-                    key=f"prof_{i}"
-                )
-            with col_skill3:
-                if st.button("🗑️", key=f"del_skill_{i}", help="Delete skill"):
-                    st.session_state.skills_list.pop(i)
-                    st.rerun()
+        col_skill1, col_skill2, col_skill3 = st.columns([4, 2, 1])
+        with col_skill1:
+            skill['skill'] = st.text_input(
+                f"Skill {i+1}", 
+                value=skill.get('skill', ''),
+                key=f"skill_{i}"
+            )
+        with col_skill2:
+            skill['proficiency'] = st.selectbox(
+                f"Level {i+1}",
+                options=[1, 2, 3, 4, 5],
+                index=min(skill.get('proficiency', 3) - 1, 4),
+                format_func=lambda x: f"{x} - {'Beginner' if x==1 else 'Basic' if x==2 else 'Intermediate' if x==3 else 'Advanced' if x==4 else 'Expert'}",
+                key=f"prof_{i}"
+            )
+        with col_skill3:
+            if st.button("🗑️", key=f"del_skill_{i}", help="Delete skill"):
+                st.session_state.skills_list.pop(i)
+                st.rerun()
     
-    if st.button("➕ Add Skill"):
+    if st.button("➕ Add Skill", key="add_skill_btn"):
         st.session_state.skills_list.append({'skill': '', 'proficiency': 3})
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
@@ -376,29 +462,24 @@ def show_candidate_form(data):
     # Experience Section
     st.markdown('<div class="form-section">', unsafe_allow_html=True)
     st.markdown("### 💼 Work Experience")
-    experience_data = data.get('experience', [])
-    
-    # Initialize session state for experience
-    if 'experience_list' not in st.session_state:
-        st.session_state.experience_list = experience_data.copy() if experience_data else []
     
     # Display experience in expandable sections
     for i, exp in enumerate(st.session_state.experience_list):
         with st.expander(f"Position {i+1}: {exp.get('position', 'New Position')}"):
             col_exp1, col_exp2 = st.columns(2)
             with col_exp1:
-                st.session_state.experience_list[i]['position'] = st.text_input(
+                exp['position'] = st.text_input(
                     "Job Title", 
                     value=exp.get('position', ''),
                     key=f"pos_{i}"
                 )
-                st.session_state.experience_list[i]['company'] = st.text_input(
+                exp['company'] = st.text_input(
                     "Company", 
                     value=exp.get('company', ''),
                     key=f"comp_{i}"
                 )
             with col_exp2:
-                st.session_state.experience_list[i]['years'] = st.text_input(
+                exp['years'] = st.text_input(
                     "Duration", 
                     value=exp.get('years', ''),
                     key=f"duration_{i}"
@@ -408,41 +489,36 @@ def show_candidate_form(data):
             st.markdown("**Key Responsibilities:**")
             responsibilities = exp.get('responsibilities', [])
             
-            # Initialize responsibilities in session state
-            if f'resp_list_{i}' not in st.session_state:
-                st.session_state[f'resp_list_{i}'] = responsibilities.copy() if responsibilities else ['']
+            # Initialize responsibilities if not exists
+            if not responsibilities:
+                exp['responsibilities'] = ['']
+                responsibilities = exp['responsibilities']
             
-            for j, resp in enumerate(st.session_state[f'resp_list_{i}']):
+            for j, resp in enumerate(responsibilities):
                 col_resp1, col_resp2 = st.columns([5, 1])
                 with col_resp1:
-                    st.session_state[f'resp_list_{i}'][j] = st.text_input(
+                    responsibilities[j] = st.text_input(
                         f"Responsibility {j+1}", 
                         value=resp,
                         key=f"resp_{i}_{j}"
                     )
                 with col_resp2:
                     if st.button("🗑️", key=f"del_resp_{i}_{j}", help="Delete responsibility"):
-                        st.session_state[f'resp_list_{i}'].pop(j)
+                        responsibilities.pop(j)
                         st.rerun()
             
             col_add_resp, col_del_exp = st.columns(2)
             with col_add_resp:
                 if st.button(f"➕ Add Responsibility", key=f"add_resp_{i}"):
-                    st.session_state[f'resp_list_{i}'].append('')
+                    responsibilities.append('')
                     st.rerun()
             
             with col_del_exp:
                 if st.button(f"🗑️ Delete Position", key=f"del_exp_{i}"):
                     st.session_state.experience_list.pop(i)
-                    # Clean up responsibilities session state
-                    if f'resp_list_{i}' in st.session_state:
-                        del st.session_state[f'resp_list_{i}']
                     st.rerun()
-            
-            # Update the experience with responsibilities
-            st.session_state.experience_list[i]['responsibilities'] = st.session_state[f'resp_list_{i}']
     
-    if st.button("➕ Add Work Experience"):
+    if st.button("➕ Add Work Experience", key="add_experience_btn"):
         st.session_state.experience_list.append({
             'position': '', 
             'company': '', 
@@ -455,11 +531,6 @@ def show_candidate_form(data):
     # Achievements Section
     st.markdown('<div class="form-section">', unsafe_allow_html=True)
     st.markdown("### 🏆 Achievements")
-    achievements_data = data.get('achievements', [])
-    
-    # Initialize session state for achievements
-    if 'achievements_list' not in st.session_state:
-        st.session_state.achievements_list = achievements_data.copy() if achievements_data else []
     
     for i, achievement in enumerate(st.session_state.achievements_list):
         col_ach1, col_ach2 = st.columns([5, 1])
@@ -476,7 +547,7 @@ def show_candidate_form(data):
                 st.session_state.achievements_list.pop(i)
                 st.rerun()
     
-    if st.button("➕ Add Achievement"):
+    if st.button("➕ Add Achievement", key="add_achievement_btn"):
         st.session_state.achievements_list.append('')
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
@@ -484,7 +555,12 @@ def show_candidate_form(data):
     # Special Skills
     st.markdown('<div class="form-section">', unsafe_allow_html=True)
     st.markdown("### ⭐ Special Skills & Certifications")
-    special_skills = st.text_area("Special Skills", value=data.get('special_skills', ''), height=100, key="special_skills_input")
+    st.session_state.form_special_skills = st.text_area(
+        "Special Skills", 
+        value=st.session_state.form_special_skills, 
+        height=100, 
+        key="special_skills_input"
+    )
     st.markdown('</div>', unsafe_allow_html=True)
     
     # Form submission with enhanced styling
@@ -494,16 +570,14 @@ def show_candidate_form(data):
     with col_submit1:
         st.markdown("*Fields marked with * are required")
     with col_submit2:
-        if st.button("💾 Save to Database", type="primary", use_container_width=True):
-            if name and email:  # Basic validation
-                handle_candidate_save(name, current_role, email, phone, notice_period, current_salary, 
-                                    industry, desired_salary, highest_qualification, special_skills)
+        if st.button("💾 Save to Database", type="primary", use_container_width=True, key="save_candidate_btn"):
+            if st.session_state.form_name and st.session_state.form_email:  # Basic validation
+                handle_candidate_save()
             else:
                 st.markdown('<div class="error-message">❌ Please fill in at least Name and Email fields.</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-def handle_candidate_save(name, current_role, email, phone, notice_period, current_salary, 
-                         industry, desired_salary, highest_qualification, special_skills):
+def handle_candidate_save():
     """Handle the candidate save process with overwrite logic"""
     try:
         # Clean up empty entries
@@ -521,29 +595,29 @@ def handle_candidate_save(name, current_role, email, phone, notice_period, curre
         clean_achievements = [a for a in st.session_state.achievements_list if a.strip()]
         
         candidate_data = {
-            'name': name,
-            'current_role': current_role,
-            'email': email,
-            'phone': phone,
-            'notice_period': notice_period,
-            'current_salary': current_salary,
-            'industry': industry,
-            'desired_salary': desired_salary,
-            'highest_qualification': highest_qualification,
+            'name': st.session_state.form_name,
+            'current_role': st.session_state.form_current_role,
+            'email': st.session_state.form_email,
+            'phone': st.session_state.form_phone,
+            'notice_period': st.session_state.form_notice_period,
+            'current_salary': st.session_state.form_current_salary,
+            'industry': st.session_state.form_industry,
+            'desired_salary': st.session_state.form_desired_salary,
+            'highest_qualification': st.session_state.form_highest_qualification,
             'experience': clean_experience,
             'skills': clean_skills,
             'qualifications': clean_qualifications,
             'achievements': clean_achievements,
-            'special_skills': special_skills
+            'special_skills': st.session_state.form_special_skills
         }
         
         # Check if candidate already exists
-        existing_candidate = st.session_state.db_manager.get_candidate_by_email(email)
+        existing_candidate = st.session_state.db_manager.get_candidate_by_email(st.session_state.form_email)
         
         if existing_candidate:
             # Store the candidate data for potential overwrite
             st.session_state.pending_candidate_data = candidate_data
-            st.session_state.existing_candidate_email = email
+            st.session_state.existing_candidate_email = st.session_state.form_email
             st.session_state.show_overwrite_dialog = True
             st.rerun()
         else:
@@ -583,7 +657,7 @@ def show_overwrite_confirmation_dialog():
     col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
-        if st.button("✅ Overwrite Record", type="primary", use_container_width=True):
+        if st.button("✅ Overwrite Record", type="primary", use_container_width=True, key="overwrite_btn"):
             # Update the existing candidate
             try:
                 result, message = st.session_state.db_manager.update_candidate(st.session_state.pending_candidate_data)
@@ -604,7 +678,7 @@ def show_overwrite_confirmation_dialog():
                 st.rerun()
     
     with col2:
-        if st.button("❌ Cancel", use_container_width=True):
+        if st.button("❌ Cancel", use_container_width=True, key="cancel_overwrite_btn"):
             clear_overwrite_dialog_state()
             st.markdown('<div class="warning-message">ℹ️ The candidate already exists. Please modify the email address or update the existing record.</div>', unsafe_allow_html=True)
             st.rerun()
@@ -616,16 +690,13 @@ def clear_form_session_state():
     """Clear form-related session state"""
     keys_to_clear = [
         'qualifications_list', 'skills_list', 'experience_list', 'achievements_list',
-        'extracted_data'
+        'extracted_data', 'cv_processed', 'form_name', 'form_email', 'form_phone',
+        'form_current_role', 'form_industry', 'form_notice_period', 'form_current_salary',
+        'form_desired_salary', 'form_highest_qualification', 'form_special_skills'
     ]
     
     for key in keys_to_clear:
         if key in st.session_state:
-            del st.session_state[key]
-    
-    # Clear responsibility lists
-    for key in list(st.session_state.keys()):
-        if key.startswith('resp_list_'):
             del st.session_state[key]
 
 def clear_overwrite_dialog_state():
