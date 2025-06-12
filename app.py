@@ -289,6 +289,8 @@ def candidate_details_page():
     with col1:
         if st.button("⬅️ Back to Search", key="back_to_search", help="Return to search results"):
             st.session_state.current_page = 'main'
+            # Set the sidebar to Search Candidates tab
+            st.session_state.main_nav = "🔍 Search Candidates"
             st.rerun()
     
     with col3:
@@ -1182,6 +1184,14 @@ def manual_search():
         # Perform search
         results = st.session_state.db_manager.search_candidates(search_criteria)
         
+        # Add relevance scores to results
+        for candidate in results:
+            relevance_score = calculate_manual_search_relevance(candidate, search_criteria)
+            candidate['relevance_score'] = relevance_score
+        
+        # Sort by relevance score (highest first)
+        results.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+        
         # Cache results
         st.session_state.cached_search_results = results
         st.session_state.search_performed = True
@@ -1226,6 +1236,80 @@ def job_description_search():
             st.markdown('<div class="error-message">❌ Please provide a job description.</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
+def calculate_manual_search_relevance(candidate, search_criteria):
+    """Calculate relevance score for manual search criteria"""
+    score = 0
+    total_criteria = 0
+    
+    try:
+        # Name matching
+        if search_criteria.get('name'):
+            total_criteria += 1
+            candidate_name = candidate.get('name', '').lower()
+            search_name = search_criteria['name'].lower()
+            if search_name in candidate_name:
+                score += 1
+        
+        # Current role matching
+        if search_criteria.get('current_role'):
+            total_criteria += 1
+            candidate_role = candidate.get('current_role', '').lower()
+            search_role = search_criteria['current_role'].lower()
+            if search_role in candidate_role:
+                score += 1
+        
+        # Industry matching
+        if search_criteria.get('industry'):
+            total_criteria += 1
+            candidate_industry = candidate.get('industry', '').lower()
+            search_industry = search_criteria['industry'].lower()
+            if search_industry in candidate_industry:
+                score += 1
+        
+        # Skills matching
+        if search_criteria.get('skills'):
+            total_criteria += 1
+            candidate_skills = [skill.get('skill', '').lower() for skill in candidate.get('skills', [])]
+            search_skills = search_criteria['skills'].lower()
+            skills_match = any(search_skills in skill for skill in candidate_skills)
+            if skills_match:
+                score += 1
+        
+        # Qualifications matching
+        if search_criteria.get('qualifications'):
+            total_criteria += 1
+            candidate_quals = [qual.get('qualification', '').lower() for qual in candidate.get('qualifications', [])]
+            candidate_highest = candidate.get('highest_qualification', '').lower()
+            search_quals = search_criteria['qualifications'].lower()
+            quals_match = any(search_quals in qual for qual in candidate_quals) or search_quals in candidate_highest
+            if quals_match:
+                score += 1
+        
+        # Notice period matching
+        if search_criteria.get('notice_period'):
+            total_criteria += 1
+            candidate_notice = candidate.get('notice_period', '').lower()
+            search_notice = search_criteria['notice_period'].lower()
+            if search_notice in candidate_notice:
+                score += 1
+        
+        # Experience years matching
+        if search_criteria.get('experience_years', 0) > 0:
+            total_criteria += 1
+            candidate_exp_years = len(candidate.get('experience', []))
+            required_years = search_criteria['experience_years']
+            if candidate_exp_years >= required_years:
+                score += 1
+        
+        # Calculate percentage
+        if total_criteria > 0:
+            return round((score / total_criteria) * 100, 1)
+        else:
+            return 100  # If no criteria specified, consider it a 100% match
+            
+    except Exception as e:
+        return 0
+
 def rank_candidates_by_job_match(candidates, requirements):
     """Rank candidates based on job requirements match"""
     ranked_candidates = []
@@ -1233,6 +1317,7 @@ def rank_candidates_by_job_match(candidates, requirements):
     for candidate in candidates:
         score = calculate_match_score(candidate, requirements)
         candidate['match_score'] = score
+        candidate['relevance_score'] = score  # Also set as relevance_score for consistency
         ranked_candidates.append(candidate)
     
     # Sort by match score (highest first)
@@ -1339,14 +1424,16 @@ def display_search_results(results, show_match_score=None):
                 
                 with col4:
                     st.write(f"**Education:** {candidate.get('highest_qualification', 'N/A')}")
-                    if show_match_score and candidate.get('match_score') is not None:
-                        score = candidate.get('match_score', 0)
-                        if score >= 80:
-                            st.markdown(f"**Match:** 🟢 {score}%")
-                        elif score >= 60:
-                            st.markdown(f"**Match:** 🟡 {score}%")
+                    
+                    # Show relevance score (either from manual search or job matching)
+                    relevance_score = candidate.get('relevance_score') or candidate.get('match_score')
+                    if relevance_score is not None:
+                        if relevance_score >= 80:
+                            st.markdown(f"**Relevance:** 🟢 {relevance_score}%")
+                        elif relevance_score >= 60:
+                            st.markdown(f"**Relevance:** 🟡 {relevance_score}%")
                         else:
-                            st.markdown(f"**Match:** 🔴 {score}%")
+                            st.markdown(f"**Relevance:** 🔴 {relevance_score}%")
                 
                 with col5:
                     # View Details button - this navigates to the candidate details page
