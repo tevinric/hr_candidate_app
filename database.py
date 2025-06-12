@@ -130,6 +130,10 @@ class DatabaseManager:
             
             conn.commit()
             conn.close()
+            
+            # Schedule backup
+            self._schedule_backup()
+            
             return True, "Candidate saved successfully"
             
         except sqlite3.IntegrityError as e:
@@ -142,6 +146,61 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Error inserting candidate: {str(e)}")
             return False, f"Error saving candidate: {str(e)}"
+
+    def update_candidate(self, candidate_data: Dict[str, Any]) -> Tuple[bool, str]:
+        """Update an existing candidate in the database
+        
+        Returns:
+            Tuple[bool, str]: (success, message)
+        """
+        try:
+            # Check if candidate exists
+            email = candidate_data.get('email')
+            existing_candidate = self.get_candidate_by_email(email)
+            
+            if not existing_candidate:
+                return False, f"Candidate with email {email} not found"
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE candidates SET
+                    name = ?, current_role = ?, phone = ?, notice_period = ?,
+                    current_salary = ?, industry = ?, desired_salary = ?,
+                    highest_qualification = ?, experience = ?, skills = ?,
+                    qualifications = ?, achievements = ?, special_skills = ?,
+                    updated_at = ?
+                WHERE email = ?
+            """, (
+                candidate_data.get('name'),
+                candidate_data.get('current_role'),
+                candidate_data.get('phone'),
+                candidate_data.get('notice_period'),
+                candidate_data.get('current_salary'),
+                candidate_data.get('industry'),
+                candidate_data.get('desired_salary'),
+                candidate_data.get('highest_qualification'),
+                json.dumps(candidate_data.get('experience', [])),
+                json.dumps(candidate_data.get('skills', [])),
+                json.dumps(candidate_data.get('qualifications', [])),
+                json.dumps(candidate_data.get('achievements', [])),
+                candidate_data.get('special_skills'),
+                datetime.now(),
+                email
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            # Schedule backup after update
+            self._schedule_backup()
+            
+            return True, "Candidate updated successfully"
+            
+        except Exception as e:
+            logging.error(f"Error updating candidate: {str(e)}")
+            return False, f"Error updating candidate: {str(e)}"
 
     def search_candidates(self, search_criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Search candidates based on criteria"""
@@ -279,7 +338,7 @@ class DatabaseManager:
         
         try:
             # Generate backup filename
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             backup_name = f"backup_{timestamp}.db"
             
             # Upload database file
@@ -301,7 +360,7 @@ class DatabaseManager:
             # Log backup
             file_size = os.path.getsize(self.db_path)
             self._log_backup(backup_name, "SUCCESS", file_size)
-            self.last_backup_time = datetime.datetime.now()
+            self.last_backup_time = datetime.now()
             
             logging.info(f"Database backed up successfully as {backup_name}")
             return True
@@ -378,8 +437,8 @@ class DatabaseManager:
             if total_candidates % 5 == 0:  # Every 5 candidates
                 should_backup = True
             elif last_backup:
-                last_backup_time = datetime.datetime.fromisoformat(last_backup.replace('Z', '+00:00'))
-                if (datetime.datetime.now() - last_backup_time).total_seconds() > 3600:  # 1 hour
+                last_backup_time = datetime.fromisoformat(last_backup.replace('Z', '+00:00'))
+                if (datetime.now() - last_backup_time).total_seconds() > 3600:  # 1 hour
                     should_backup = True
             else:  # No previous backup
                 should_backup = True
@@ -419,7 +478,7 @@ class DatabaseManager:
         
         try:
             container_client = self.blob_service_client.get_container_client(Config.BACKUP_CONTAINER)
-            cutoff_date = datetime.datetime.now() - datetime.timedelta(days=keep_days)
+            cutoff_date = datetime.now() - datetime.timedelta(days=keep_days)
             
             blobs_to_delete = []
             for blob in container_client.list_blobs():
@@ -433,17 +492,31 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Failed to cleanup old backups: {str(e)}")
     
-    def get_candidate_by_email(self, email):
-        """Get candidate by email address"""
+    def get_candidate_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get a candidate by email address"""
         try:
             conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
             cursor.execute("SELECT * FROM candidates WHERE email = ?", (email,))
-            result = cursor.fetchone()
-            conn.close()
+            row = cursor.fetchone()
             
-            return result
+            if not row:
+                conn.close()
+                return None
+            
+            candidate = dict(row)
+            
+            # Parse JSON fields
+            candidate['experience'] = json.loads(candidate.get('experience', '[]'))
+            candidate['skills'] = json.loads(candidate.get('skills', '[]'))
+            candidate['qualifications'] = json.loads(candidate.get('qualifications', '[]'))
+            candidate['achievements'] = json.loads(candidate.get('achievements', '[]'))
+            
+            conn.close()
+            return candidate
+            
         except Exception as e:
             logging.error(f"Error getting candidate by email: {str(e)}")
             return None
