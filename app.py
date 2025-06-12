@@ -517,7 +517,7 @@ def show_candidate_edit_form():
             st.session_state.edit_achievements_list[i] = st.text_area(
                 f"Achievement {i+1}", 
                 value=achievement,
-                height=50,
+                height=68,
                 key=f"edit_ach_{i}"
             )
         with col_ach2:
@@ -944,7 +944,7 @@ def show_candidate_form():
             st.session_state.achievements_list[i] = st.text_area(
                 f"Achievement {i+1}", 
                 value=achievement,
-                height=50,
+                height=68,
                 key=f"ach_{i}"
             )
         with col_ach2:
