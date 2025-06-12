@@ -162,6 +162,93 @@ st.markdown("""
         box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
         margin: 1rem 0;
     }
+    
+    /* Modal styling */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        z-index: 9999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    .modal-content {
+        background: white;
+        border-radius: 15px;
+        padding: 2rem;
+        width: 90%;
+        max-width: 1200px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        position: relative;
+    }
+    
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #e2e8f0;
+    }
+    
+    .modal-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #1e3a8a;
+        margin: 0;
+    }
+    
+    .close-button {
+        background: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        font-size: 1.2rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .close-button:hover {
+        background: #dc2626;
+    }
+    
+    /* Clickable table rows */
+    .clickable-row {
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+    
+    .clickable-row:hover {
+        background-color: #f1f5f9 !important;
+    }
+    
+    /* Edit mode styling */
+    .edit-mode {
+        background: #fef3c7;
+        border: 2px solid #f59e0b;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+    
+    .view-mode {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -182,6 +269,44 @@ def initialize_session_state():
         st.session_state.pending_candidate_data = None
     if 'existing_candidate_email' not in st.session_state:
         st.session_state.existing_candidate_email = None
+    
+    # Modal management
+    if 'show_modal' not in st.session_state:
+        st.session_state.show_modal = False
+    if 'selected_candidate' not in st.session_state:
+        st.session_state.selected_candidate = None
+    if 'modal_edit_mode' not in st.session_state:
+        st.session_state.modal_edit_mode = False
+    
+    # Modal form data
+    if 'modal_name' not in st.session_state:
+        st.session_state.modal_name = ""
+    if 'modal_email' not in st.session_state:
+        st.session_state.modal_email = ""
+    if 'modal_phone' not in st.session_state:
+        st.session_state.modal_phone = ""
+    if 'modal_current_role' not in st.session_state:
+        st.session_state.modal_current_role = ""
+    if 'modal_industry' not in st.session_state:
+        st.session_state.modal_industry = ""
+    if 'modal_notice_period' not in st.session_state:
+        st.session_state.modal_notice_period = ""
+    if 'modal_current_salary' not in st.session_state:
+        st.session_state.modal_current_salary = ""
+    if 'modal_desired_salary' not in st.session_state:
+        st.session_state.modal_desired_salary = ""
+    if 'modal_highest_qualification' not in st.session_state:
+        st.session_state.modal_highest_qualification = ""
+    if 'modal_special_skills' not in st.session_state:
+        st.session_state.modal_special_skills = ""
+    if 'modal_qualifications_list' not in st.session_state:
+        st.session_state.modal_qualifications_list = []
+    if 'modal_skills_list' not in st.session_state:
+        st.session_state.modal_skills_list = []
+    if 'modal_experience_list' not in st.session_state:
+        st.session_state.modal_experience_list = []
+    if 'modal_achievements_list' not in st.session_state:
+        st.session_state.modal_achievements_list = []
     
     # Form data session states
     if 'form_name' not in st.session_state:
@@ -216,6 +341,11 @@ def main():
         <p>AI-Powered CV Processing and Intelligent Candidate Matching</p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Check if modal should be shown FIRST
+    if st.session_state.show_modal and st.session_state.selected_candidate:
+        show_candidate_modal()
+        return
     
     # Sidebar navigation with enhanced styling
     st.sidebar.markdown("""
@@ -705,6 +835,466 @@ def clear_overwrite_dialog_state():
     st.session_state.pending_candidate_data = None
     st.session_state.existing_candidate_email = None
 
+def open_candidate_modal(candidate_data):
+    """Open modal with candidate data"""
+    # Set modal state
+    st.session_state.show_modal = True
+    st.session_state.selected_candidate = candidate_data
+    st.session_state.modal_edit_mode = False
+    
+    # Initialize modal form data from candidate
+    st.session_state.modal_name = candidate_data.get('name', '')
+    st.session_state.modal_email = candidate_data.get('email', '')
+    st.session_state.modal_phone = candidate_data.get('phone', '')
+    st.session_state.modal_current_role = candidate_data.get('current_role', '')
+    st.session_state.modal_industry = candidate_data.get('industry', '')
+    st.session_state.modal_notice_period = candidate_data.get('notice_period', '')
+    st.session_state.modal_current_salary = candidate_data.get('current_salary', '')
+    st.session_state.modal_desired_salary = candidate_data.get('desired_salary', '')
+    st.session_state.modal_highest_qualification = candidate_data.get('highest_qualification', '')
+    st.session_state.modal_special_skills = candidate_data.get('special_skills', '')
+    
+    # Initialize lists
+    st.session_state.modal_qualifications_list = candidate_data.get('qualifications', []).copy()
+    st.session_state.modal_skills_list = candidate_data.get('skills', []).copy()
+    st.session_state.modal_experience_list = candidate_data.get('experience', []).copy()
+    st.session_state.modal_achievements_list = candidate_data.get('achievements', []).copy()
+    
+    # CRITICAL: Force page refresh to show modal
+    st.rerun()
+
+def close_candidate_modal():
+    """Close the modal"""
+    st.session_state.show_modal = False
+    st.session_state.selected_candidate = None
+    st.session_state.modal_edit_mode = False
+    # CRITICAL: Force page refresh to hide modal
+    st.rerun()
+
+def show_candidate_modal():
+    """Display the candidate modal using Streamlit native components"""
+    if not st.session_state.selected_candidate:
+        return
+    
+    candidate = st.session_state.selected_candidate
+    
+    # Create a full-width container for modal
+    with st.container():
+        # Modal header with professional styling
+        st.markdown("""
+        <div style="background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%); 
+                    padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem;">
+            <h2 style="color: white; margin: 0; text-align: center;">
+                👤 Candidate Details: {name}
+            </h2>
+        </div>
+        """.format(name=candidate.get('name', 'Unknown')), unsafe_allow_html=True)
+        
+        # Control buttons
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
+        
+        with col2:
+            if st.button("✏️ Edit Mode", key="edit_modal_btn", help="Edit candidate information", use_container_width=True):
+                st.session_state.modal_edit_mode = not st.session_state.modal_edit_mode
+                st.rerun()
+        
+        with col3:
+            if st.button("❌ Close", key="close_modal_btn", use_container_width=True):
+                close_candidate_modal()
+        
+        st.markdown("---")
+        
+        # Show form in edit or view mode
+        if st.session_state.modal_edit_mode:
+            st.markdown('<div style="background: #fef3c7; padding: 1rem; border-radius: 8px; border: 2px solid #f59e0b; margin-bottom: 1rem;">', unsafe_allow_html=True)
+            st.markdown("### ✏️ EDIT MODE - Make changes and save to update the database")
+            st.markdown('</div>', unsafe_allow_html=True)
+            show_modal_edit_form()
+        else:
+            st.markdown('<div style="background: #f0f9ff; padding: 1rem; border-radius: 8px; border: 2px solid #0ea5e9; margin-bottom: 1rem;">', unsafe_allow_html=True)
+            st.markdown("### 👁️ VIEW MODE - Click 'Edit Mode' to make changes")
+            st.markdown('</div>', unsafe_allow_html=True)
+            show_modal_view_data()
+
+def show_modal_view_data():
+    """Show candidate data in view mode"""
+    candidate = st.session_state.selected_candidate
+    
+    # Personal Information
+    st.markdown('<div class="view-mode">', unsafe_allow_html=True)
+    st.markdown("### 👤 Personal Information")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write(f"**Name:** {candidate.get('name', 'N/A')}")
+        st.write(f"**Email:** {candidate.get('email', 'N/A')}")
+        st.write(f"**Phone:** {candidate.get('phone', 'N/A')}")
+    
+    with col2:
+        st.write(f"**Current Role:** {candidate.get('current_role', 'N/A')}")
+        st.write(f"**Industry:** {candidate.get('industry', 'N/A')}")
+        st.write(f"**Notice Period:** {candidate.get('notice_period', 'N/A')}")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Salary Information
+    st.markdown('<div class="view-mode">', unsafe_allow_html=True)
+    st.markdown("### 💰 Salary Information")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(f"**Current Salary:** {candidate.get('current_salary', 'N/A')}")
+    with col2:
+        st.write(f"**Desired Salary:** {candidate.get('desired_salary', 'N/A')}")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Education
+    st.markdown('<div class="view-mode">', unsafe_allow_html=True)
+    st.markdown("### 🎓 Education")
+    st.write(f"**Highest Qualification:** {candidate.get('highest_qualification', 'N/A')}")
+    
+    if candidate.get('qualifications'):
+        st.markdown("**Detailed Qualifications:**")
+        quals_df = pd.DataFrame(candidate['qualifications'])
+        st.dataframe(quals_df, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Skills
+    if candidate.get('skills'):
+        st.markdown('<div class="view-mode">', unsafe_allow_html=True)
+        st.markdown("### 🛠️ Skills")
+        skills_df = pd.DataFrame(candidate['skills'])
+        st.dataframe(skills_df, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Experience
+    if candidate.get('experience'):
+        st.markdown('<div class="view-mode">', unsafe_allow_html=True)
+        st.markdown("### 💼 Work Experience")
+        for i, exp in enumerate(candidate['experience']):
+            with st.expander(f"Position {i+1}: {exp.get('position', 'N/A')} at {exp.get('company', 'N/A')}"):
+                st.write(f"**Duration:** {exp.get('years', 'N/A')}")
+                if exp.get('responsibilities'):
+                    st.write("**Responsibilities:**")
+                    for resp in exp['responsibilities']:
+                        st.write(f"• {resp}")
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Achievements
+    if candidate.get('achievements'):
+        st.markdown('<div class="view-mode">', unsafe_allow_html=True)
+        st.markdown("### 🏆 Achievements")
+        for achievement in candidate['achievements']:
+            st.write(f"• {achievement}")
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Special Skills
+    if candidate.get('special_skills'):
+        st.markdown('<div class="view-mode">', unsafe_allow_html=True)
+        st.markdown("### ⭐ Special Skills & Certifications")
+        st.write(candidate.get('special_skills'))
+        st.markdown('</div>', unsafe_allow_html=True)
+
+def show_modal_edit_form():
+    """Show candidate data in edit mode"""
+    st.markdown('<div class="edit-mode">', unsafe_allow_html=True)
+    st.markdown("### ✏️ Edit Mode - Make changes and save to update the database")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Personal Information Section
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 👤 Personal Information")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.session_state.modal_name = st.text_input(
+            "Full Name *", 
+            value=st.session_state.modal_name, 
+            key="modal_name_input"
+        )
+        st.session_state.modal_email = st.text_input(
+            "Email Address *", 
+            value=st.session_state.modal_email, 
+            key="modal_email_input"
+        )
+        st.session_state.modal_phone = st.text_input(
+            "Phone Number", 
+            value=st.session_state.modal_phone, 
+            key="modal_phone_input"
+        )
+        
+    with col2:
+        st.session_state.modal_current_role = st.text_input(
+            "Current Role", 
+            value=st.session_state.modal_current_role, 
+            key="modal_role_input"
+        )
+        st.session_state.modal_industry = st.text_input(
+            "Industry", 
+            value=st.session_state.modal_industry, 
+            key="modal_industry_input"
+        )
+        st.session_state.modal_notice_period = st.text_input(
+            "Notice Period", 
+            value=st.session_state.modal_notice_period, 
+            key="modal_notice_input"
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Salary Information
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 💰 Salary Information")
+    col3, col4 = st.columns(2)
+    with col3:
+        st.session_state.modal_current_salary = st.text_input(
+            "Current Salary", 
+            value=st.session_state.modal_current_salary, 
+            key="modal_current_sal"
+        )
+    with col4:
+        st.session_state.modal_desired_salary = st.text_input(
+            "Desired Salary", 
+            value=st.session_state.modal_desired_salary, 
+            key="modal_desired_sal"
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Education
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 🎓 Education")
+    st.session_state.modal_highest_qualification = st.text_input(
+        "Highest Qualification", 
+        value=st.session_state.modal_highest_qualification, 
+        key="modal_highest_qual"
+    )
+    
+    # Qualifications
+    st.markdown("**Detailed Qualifications:**")
+    for i, qual in enumerate(st.session_state.modal_qualifications_list):
+        col_qual1, col_qual2, col_qual3, col_qual4 = st.columns([3, 3, 2, 1])
+        with col_qual1:
+            qual['qualification'] = st.text_input(
+                f"Qualification {i+1}", 
+                value=qual.get('qualification', ''),
+                key=f"modal_qual_{i}"
+            )
+        with col_qual2:
+            qual['institution'] = st.text_input(
+                f"Institution {i+1}", 
+                value=qual.get('institution', ''),
+                key=f"modal_inst_{i}"
+            )
+        with col_qual3:
+            qual['year'] = st.text_input(
+                f"Year {i+1}", 
+                value=qual.get('year', ''),
+                key=f"modal_year_{i}"
+            )
+        with col_qual4:
+            if st.button("🗑️", key=f"modal_del_qual_{i}", help="Delete qualification"):
+                st.session_state.modal_qualifications_list.pop(i)
+                st.rerun()
+    
+    if st.button("➕ Add Qualification", key="modal_add_qualification_btn"):
+        st.session_state.modal_qualifications_list.append({'qualification': '', 'institution': '', 'year': '', 'grade': ''})
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Skills Section
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 🛠️ Skills")
+    
+    for i, skill in enumerate(st.session_state.modal_skills_list):
+        col_skill1, col_skill2, col_skill3 = st.columns([4, 2, 1])
+        with col_skill1:
+            skill['skill'] = st.text_input(
+                f"Skill {i+1}", 
+                value=skill.get('skill', ''),
+                key=f"modal_skill_{i}"
+            )
+        with col_skill2:
+            skill['proficiency'] = st.selectbox(
+                f"Level {i+1}",
+                options=[1, 2, 3, 4, 5],
+                index=min(skill.get('proficiency', 3) - 1, 4),
+                format_func=lambda x: f"{x} - {'Beginner' if x==1 else 'Basic' if x==2 else 'Intermediate' if x==3 else 'Advanced' if x==4 else 'Expert'}",
+                key=f"modal_prof_{i}"
+            )
+        with col_skill3:
+            if st.button("🗑️", key=f"modal_del_skill_{i}", help="Delete skill"):
+                st.session_state.modal_skills_list.pop(i)
+                st.rerun()
+    
+    if st.button("➕ Add Skill", key="modal_add_skill_btn"):
+        st.session_state.modal_skills_list.append({'skill': '', 'proficiency': 3})
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Experience Section
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 💼 Work Experience")
+    
+    for i, exp in enumerate(st.session_state.modal_experience_list):
+        with st.expander(f"Position {i+1}: {exp.get('position', 'New Position')}"):
+            col_exp1, col_exp2 = st.columns(2)
+            with col_exp1:
+                exp['position'] = st.text_input(
+                    "Job Title", 
+                    value=exp.get('position', ''),
+                    key=f"modal_pos_{i}"
+                )
+                exp['company'] = st.text_input(
+                    "Company", 
+                    value=exp.get('company', ''),
+                    key=f"modal_comp_{i}"
+                )
+            with col_exp2:
+                exp['years'] = st.text_input(
+                    "Duration", 
+                    value=exp.get('years', ''),
+                    key=f"modal_duration_{i}"
+                )
+            
+            # Responsibilities
+            st.markdown("**Key Responsibilities:**")
+            responsibilities = exp.get('responsibilities', [])
+            
+            if not responsibilities:
+                exp['responsibilities'] = ['']
+                responsibilities = exp['responsibilities']
+            
+            for j, resp in enumerate(responsibilities):
+                col_resp1, col_resp2 = st.columns([5, 1])
+                with col_resp1:
+                    responsibilities[j] = st.text_input(
+                        f"Responsibility {j+1}", 
+                        value=resp,
+                        key=f"modal_resp_{i}_{j}"
+                    )
+                with col_resp2:
+                    if st.button("🗑️", key=f"modal_del_resp_{i}_{j}", help="Delete responsibility"):
+                        responsibilities.pop(j)
+                        st.rerun()
+            
+            col_add_resp, col_del_exp = st.columns(2)
+            with col_add_resp:
+                if st.button(f"➕ Add Responsibility", key=f"modal_add_resp_{i}"):
+                    responsibilities.append('')
+                    st.rerun()
+            
+            with col_del_exp:
+                if st.button(f"🗑️ Delete Position", key=f"modal_del_exp_{i}"):
+                    st.session_state.modal_experience_list.pop(i)
+                    st.rerun()
+    
+    if st.button("➕ Add Work Experience", key="modal_add_experience_btn"):
+        st.session_state.modal_experience_list.append({
+            'position': '', 
+            'company': '', 
+            'years': '', 
+            'responsibilities': ['']
+        })
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Achievements Section
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 🏆 Achievements")
+    
+    for i, achievement in enumerate(st.session_state.modal_achievements_list):
+        col_ach1, col_ach2 = st.columns([5, 1])
+        with col_ach1:
+            st.session_state.modal_achievements_list[i] = st.text_area(
+                f"Achievement {i+1}", 
+                value=achievement,
+                height=50,
+                key=f"modal_ach_{i}"
+            )
+        with col_ach2:
+            st.write("")
+            if st.button("🗑️", key=f"modal_del_ach_{i}", help="Delete achievement"):
+                st.session_state.modal_achievements_list.pop(i)
+                st.rerun()
+    
+    if st.button("➕ Add Achievement", key="modal_add_achievement_btn"):
+        st.session_state.modal_achievements_list.append('')
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Special Skills
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### ⭐ Special Skills & Certifications")
+    st.session_state.modal_special_skills = st.text_area(
+        "Special Skills", 
+        value=st.session_state.modal_special_skills, 
+        height=100, 
+        key="modal_special_skills_input"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Save changes
+    st.markdown("---")
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        if st.button("💾 Save Changes", type="primary", use_container_width=True, key="modal_save_btn"):
+            if st.session_state.modal_name and st.session_state.modal_email:
+                save_modal_changes()
+            else:
+                st.error("❌ Please fill in at least Name and Email fields.")
+    
+    with col2:
+        if st.button("🚫 Cancel Edit", use_container_width=True, key="modal_cancel_edit_btn"):
+            st.session_state.modal_edit_mode = False
+            # Reload original data
+            open_candidate_modal(st.session_state.selected_candidate)
+
+def save_modal_changes():
+    """Save changes made in modal edit mode"""
+    try:
+        # Clean up empty entries
+        clean_qualifications = [q for q in st.session_state.modal_qualifications_list if q.get('qualification')]
+        clean_skills = [s for s in st.session_state.modal_skills_list if s.get('skill')]
+        clean_experience = []
+        
+        for exp in st.session_state.modal_experience_list:
+            if exp.get('position') or exp.get('company'):
+                clean_resp = [r for r in exp.get('responsibilities', []) if r.strip()]
+                exp['responsibilities'] = clean_resp
+                clean_experience.append(exp)
+        
+        clean_achievements = [a for a in st.session_state.modal_achievements_list if a.strip()]
+        
+        candidate_data = {
+            'name': st.session_state.modal_name,
+            'current_role': st.session_state.modal_current_role,
+            'email': st.session_state.modal_email,
+            'phone': st.session_state.modal_phone,
+            'notice_period': st.session_state.modal_notice_period,
+            'current_salary': st.session_state.modal_current_salary,
+            'industry': st.session_state.modal_industry,
+            'desired_salary': st.session_state.modal_desired_salary,
+            'highest_qualification': st.session_state.modal_highest_qualification,
+            'experience': clean_experience,
+            'skills': clean_skills,
+            'qualifications': clean_qualifications,
+            'achievements': clean_achievements,
+            'special_skills': st.session_state.modal_special_skills
+        }
+        
+        # Update the candidate in database
+        result, message = st.session_state.db_manager.update_candidate(candidate_data)
+        
+        if result:
+            st.success("✅ Candidate updated successfully!")
+            st.session_state.modal_edit_mode = False
+            # Update the selected candidate data
+            st.session_state.selected_candidate.update(candidate_data)
+            st.rerun()
+        else:
+            st.error(f"❌ Failed to update candidate: {message}")
+            
+    except Exception as e:
+        st.error(f"❌ Error updating candidate: {str(e)}")
+
 def search_candidates_tab():
     st.markdown('<div class="section-header"><h2>🔍 Search Candidates</h2></div>', unsafe_allow_html=True)
     
@@ -866,63 +1456,65 @@ def display_search_results(results, show_match_score=False):
         st.subheader(f"📊 Search Results ({len(results)} candidates found)")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Prepare data for display
-        display_data = []
-        for candidate in results:
-            row = {
-                'Name': candidate.get('name', 'N/A'),
-                'Current Role': candidate.get('current_role', 'N/A'),
-                'Industry': candidate.get('industry', 'N/A'),
-                'Email': candidate.get('email', 'N/A'),
-                'Phone': candidate.get('phone', 'N/A'),
-                'Notice Period': candidate.get('notice_period', 'N/A'),
-                'Highest Qualification': candidate.get('highest_qualification', 'N/A')
-            }
-            
-            if show_match_score:
-                row['Match Score %'] = candidate.get('match_score', 0)
-            
-            display_data.append(row)
+        # Store results in session state for modal access
+        st.session_state.search_results = results
         
-        # Display as dataframe with professional styling
-        df = pd.DataFrame(display_data)
-        st.dataframe(df, use_container_width=True)
+        st.markdown("💡 **Click the 'View Details' button to see full candidate information**")
+        st.markdown("---")
         
-        # Use checkbox instead of button for detailed view
-        show_details = st.checkbox("📄 Show Detailed Results")
+        # Display candidates in a simple, clean format
+        for idx, candidate in enumerate(results):
+            with st.container():
+                # Create a professional card for each candidate
+                st.markdown(f"""
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; 
+                           border: 1px solid #e2e8f0; margin: 1rem 0; 
+                           box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
+                """, unsafe_allow_html=True)
+                
+                # Candidate summary row
+                col1, col2, col3, col4, col5 = st.columns([3, 2, 2, 2, 1])
+                
+                with col1:
+                    st.markdown(f"**👤 {candidate.get('name', 'N/A')}**")
+                    st.write(f"📧 {candidate.get('email', 'N/A')}")
+                
+                with col2:
+                    st.write(f"**Role:** {candidate.get('current_role', 'N/A')}")
+                    st.write(f"**Industry:** {candidate.get('industry', 'N/A')}")
+                
+                with col3:
+                    st.write(f"**Phone:** {candidate.get('phone', 'N/A')}")
+                    st.write(f"**Notice:** {candidate.get('notice_period', 'N/A')}")
+                
+                with col4:
+                    st.write(f"**Education:** {candidate.get('highest_qualification', 'N/A')}")
+                    if show_match_score:
+                        score = candidate.get('match_score', 0)
+                        if score >= 80:
+                            st.markdown(f"**Match:** 🟢 {score}%")
+                        elif score >= 60:
+                            st.markdown(f"**Match:** 🟡 {score}%")
+                        else:
+                            st.markdown(f"**Match:** 🔴 {score}%")
+                
+                with col5:
+                    # Use a unique key for each button
+                    button_key = f"view_candidate_{idx}_{candidate.get('email', '')}"
+                    if st.button("👁️ View Details", key=button_key, help="Click to view full candidate details", type="primary"):
+                        # Debug: Show button was clicked
+                        st.success(f"✅ Opening details for {candidate.get('name', 'Unknown')}")
+                        # Open the modal
+                        open_candidate_modal(candidate)
+                
+                st.markdown("</div>", unsafe_allow_html=True)
         
-        if show_details:
-            for i, candidate in enumerate(results):
-                with st.expander(f"👤 {candidate.get('name', 'Unknown')} - Detailed View"):
-                    st.markdown('<div class="professional-card">', unsafe_allow_html=True)
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write(f"**Email:** {candidate.get('email', 'N/A')}")
-                        st.write(f"**Phone:** {candidate.get('phone', 'N/A')}")
-                        st.write(f"**Current Role:** {candidate.get('current_role', 'N/A')}")
-                        st.write(f"**Industry:** {candidate.get('industry', 'N/A')}")
-                        st.write(f"**Notice Period:** {candidate.get('notice_period', 'N/A')}")
-                        
-                    with col2:
-                        st.write(f"**Current Salary:** {candidate.get('current_salary', 'N/A')}")
-                        st.write(f"**Desired Salary:** {candidate.get('desired_salary', 'N/A')}")
-                        st.write(f"**Highest Qualification:** {candidate.get('highest_qualification', 'N/A')}")
-                        if show_match_score:
-                            st.write(f"**Match Score:** {candidate.get('match_score', 0)}%")
-                    
-                    # Skills
-                    if candidate.get('skills'):
-                        st.write("**Skills:**")
-                        skills_df = pd.DataFrame(candidate['skills'])
-                        st.dataframe(skills_df, use_container_width=True)
-                    
-                    # Experience
-                    if candidate.get('experience'):
-                        st.write("**Experience:**")
-                        exp_df = pd.DataFrame(candidate['experience'])
-                        st.dataframe(exp_df, use_container_width=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
+        # Debug info
+        st.markdown("---")
+        st.markdown("**Debug Info:**")
+        st.write(f"Show modal state: {st.session_state.get('show_modal', False)}")
+        st.write(f"Selected candidate: {st.session_state.get('selected_candidate', {}).get('name', 'None') if st.session_state.get('selected_candidate') else 'None'}")
+        
     else:
         st.markdown('<div class="warning-message">🔍 No candidates found matching your criteria.</div>', unsafe_allow_html=True)
 
