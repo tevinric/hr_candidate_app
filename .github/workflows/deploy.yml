@@ -29,27 +29,48 @@ jobs:
         username: ${{ secrets.ACR_USERNAME }}
         password: ${{ secrets.ACR_PASSWORD }}
 
+    - name: Ensure app_data container exists
+      continue-on-error: true
+      run: |
+        if [ -n "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" ]; then
+          echo "Ensuring app_data container exists..."
+          # Install Azure CLI
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          
+          # Create app_data container if it doesn't exist
+          az storage container create \
+            --name app_data \
+            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+            --output none || echo "Container might already exist"
+          
+          # Also ensure backup container exists
+          az storage container create \
+            --name hr-backups \
+            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+            --output none || echo "Backup container might already exist"
+        fi
+
     - name: Download latest database backup (if exists)
       continue-on-error: true
       run: |
         if [ -n "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" ]; then
-          echo "Attempting to download latest backup..."
-          # Install Azure CLI
+          echo "Attempting to download latest database from app_data container..."
+          # Install Azure CLI if not already installed
           curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
           
-          # Download latest backup if it exists
+          # Download latest database if it exists in app_data container
           az storage blob download \
-            --container-name hr-backups \
-            --name latest.db \
-            --file latest_backup.db \
+            --container-name app_data \
+            --name hr_candidates.db \
+            --file current_database.db \
             --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
-            --output none || echo "No backup found or download failed"
+            --output none || echo "No database found in app_data container"
             
-          # If backup exists, we'll use it in the container
-          if [ -f "latest_backup.db" ]; then
-            echo "Backup downloaded successfully"
+          # If database exists, we'll use it in the container
+          if [ -f "current_database.db" ]; then
+            echo "Database downloaded successfully from app_data container"
             mkdir -p docker-data
-            mv latest_backup.db docker-data/hr_candidates.db
+            mv current_database.db docker-data/hr_candidates.db
           fi
         fi
 
@@ -86,6 +107,11 @@ jobs:
           AZURE_OPENAI_API_VERSION="${{ secrets.AZURE_OPENAI_API_VERSION }}" \
           AZURE_OPENAI_DEPLOYMENT_NAME="${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
           BACKUP_CONTAINER="hr-backups" \
+          DB_CONTAINER="app_data" \
+          DB_BLOB_NAME="hr_candidates.db" \
+          LOCAL_DB_PATH="/tmp/hr_candidates.db" \
+          AUTO_SYNC_ENABLED="True" \
+          SYNC_INTERVAL_SECONDS="300" \
           AUTO_BACKUP_ENABLED="True" \
           BACKUP_RETENTION_DAYS="30" \
           MAX_FILE_SIZE_MB="10" \
@@ -123,3 +149,5 @@ jobs:
         echo "2. Verify backup restoration works"
         echo "3. Test CV upload and processing"
         echo "4. Test candidate search functionality"
+        echo "5. Verify database sync operations"
+        echo "6. Test blob storage connectivity"
