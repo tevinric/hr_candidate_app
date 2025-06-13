@@ -308,6 +308,10 @@ class DatabaseManager:
             logging.error(f"Error getting candidate by email: {str(e)}")
             return None
     
+    def get_sync_status(self) -> Dict[str, Any]:
+        """Get sync status information"""
+        return self.blob_db.get_sync_status()
+    
     # Keep existing backup methods but modify to work with blob database
     def backup_to_blob(self) -> bool:
         """Backup database to Azure Blob Storage (separate from main db storage)"""
@@ -432,4 +436,4 @@ class DatabaseManager:
     
     def refresh_database(self) -> bool:
         """Refresh database from blob storage"""
-        return
+        return self.blob_db.sync_from_blob()
