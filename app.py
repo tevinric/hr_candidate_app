@@ -134,6 +134,15 @@ st.markdown("""
         padding: 1rem;
         margin: 1rem 0;
     }
+    
+    /* Entry method styling */
+    .entry-method {
+        background: #f8fafc;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -157,6 +166,8 @@ def initialize_session_state():
         st.session_state.db_initialized = False
     if 'db_error' not in st.session_state:
         st.session_state.db_error = None
+    if 'manual_entry_mode' not in st.session_state:
+        st.session_state.manual_entry_mode = False
     
     # PAGE NAVIGATION STATE
     if 'current_page' not in st.session_state:
@@ -292,11 +303,11 @@ def main_application_page():
     
     tab = st.sidebar.radio(
         "Select Function", 
-        ["📄 Upload CV", "🔍 Search Candidates", "📊 Dashboard"],
+        ["📄 Add Candidate", "🔍 Search Candidates", "📊 Dashboard"],
         key="main_nav"
     )
     
-    if tab == "📄 Upload CV":
+    if tab == "📄 Add Candidate":
         upload_cv_tab()
     elif tab == "🔍 Search Candidates":
         search_candidates_tab()
@@ -685,11 +696,29 @@ def view_candidate_details(candidate):
 
 # ========== CV UPLOAD TAB ==========
 def upload_cv_tab():
-    st.markdown('<div class="section-header"><h2>📄 Upload and Process CV</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><h2>📄 Add New Candidate</h2></div>', unsafe_allow_html=True)
     
+    # Entry method selection
+    st.markdown('<div class="entry-method">', unsafe_allow_html=True)
+    entry_method = st.radio(
+        "How would you like to add the candidate?",
+        ["📄 Upload CV and Process", "✏️ Manual Entry"],
+        key="entry_method",
+        help="Choose between uploading a CV for AI processing or manually entering candidate details"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    if entry_method == "📄 Upload CV and Process":
+        cv_upload_section()
+    else:
+        manual_entry_section()
+
+def cv_upload_section():
+    """CV Upload and Processing Section"""
     # Professional upload container
     with st.container():
         st.markdown('<div class="form-container">', unsafe_allow_html=True)
+        st.markdown("### 📄 Upload CV File")
         uploaded_file = st.file_uploader(
             "Choose a PDF CV file", 
             type="pdf",
@@ -723,6 +752,7 @@ def upload_cv_tab():
                         if candidate_data:
                             st.session_state.extracted_data = candidate_data
                             st.session_state.cv_processed = True
+                            st.session_state.manual_entry_mode = False
                             
                             # Initialize form data from extracted data
                             initialize_form_data(candidate_data)
@@ -740,6 +770,38 @@ def upload_cv_tab():
     # Show form if CV has been processed
     if st.session_state.cv_processed and st.session_state.extracted_data:
         show_candidate_form()
+
+def manual_entry_section():
+    """Manual Entry Section"""
+    # Initialize manual entry mode if not already set
+    if not st.session_state.manual_entry_mode:
+        initialize_manual_entry_form()
+        st.session_state.manual_entry_mode = True
+        st.session_state.cv_processed = False
+        st.session_state.extracted_data = None
+    
+    # Show the candidate form for manual entry
+    show_candidate_form()
+
+def initialize_manual_entry_form():
+    """Initialize form for manual entry with empty data"""
+    # Initialize dynamic lists first
+    st.session_state.qualifications_list = []
+    st.session_state.skills_list = []
+    st.session_state.experience_list = []
+    st.session_state.achievements_list = []
+    
+    # Initialize form fields with empty values
+    st.session_state.form_name = ""
+    st.session_state.form_email = ""
+    st.session_state.form_phone = ""
+    st.session_state.form_current_role = ""
+    st.session_state.form_industry = ""
+    st.session_state.form_notice_period = ""
+    st.session_state.form_current_salary = ""
+    st.session_state.form_desired_salary = ""
+    st.session_state.form_highest_qualification = ""
+    st.session_state.form_special_skills = ""
 
 def initialize_form_data(data):
     """Initialize form data from extracted CV data"""
@@ -766,8 +828,12 @@ def initialize_form_data(data):
     st.session_state.form_special_skills = data.get('special_skills', '')
 
 def show_candidate_form():
-    st.markdown('<div class="section-header"><h2>📝 Review and Edit Candidate Information</h2></div>', unsafe_allow_html=True)
-    st.markdown('<p style="color: #64748b; font-style: italic;">Please review the extracted information and make any necessary corrections before saving.</p>', unsafe_allow_html=True)
+    if st.session_state.manual_entry_mode:
+        st.markdown('<div class="section-header"><h2>📝 Enter Candidate Information</h2></div>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #64748b; font-style: italic;">Please enter the candidate information manually and save to the database.</p>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="section-header"><h2>📝 Review and Edit Candidate Information</h2></div>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #64748b; font-style: italic;">Please review the extracted information and make any necessary corrections before saving.</p>', unsafe_allow_html=True)
     
     # Handle overwrite confirmation dialog
     if st.session_state.show_overwrite_dialog:
@@ -1139,7 +1205,8 @@ def clear_form_session_state():
         'qualifications_list', 'skills_list', 'experience_list', 'achievements_list',
         'extracted_data', 'cv_processed', 'form_name', 'form_email', 'form_phone',
         'form_current_role', 'form_industry', 'form_notice_period', 'form_current_salary',
-        'form_desired_salary', 'form_highest_qualification', 'form_special_skills'
+        'form_desired_salary', 'form_highest_qualification', 'form_special_skills',
+        'manual_entry_mode'
     ]
     
     for key in keys_to_clear:
