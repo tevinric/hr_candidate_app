@@ -5,11 +5,12 @@ import threading
 import time
 import gzip
 import json
+import shutil
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, Any, Union
+from dataclasses import dataclass, asdict
 from azure.storage.blob import BlobServiceClient, BlobClient
-from azure.core.exceptions import ResourceNotFoundError
+from azure.core.exceptions import ResourceNotFoundError, AzureError
 from config import Config
 
 @dataclass
@@ -22,6 +23,18 @@ class BackupInfo:
     status: str  # 'completed', 'failed', 'in_progress'
     compressed: bool
     metadata: Dict[str, Any]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization"""
+        data = asdict(self)
+        data['timestamp'] = self.timestamp.isoformat()
+        return data
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'BackupInfo':
+        """Create from dictionary"""
+        data['timestamp'] = datetime.fromisoformat(data['timestamp'])
+        return cls(**data)
 
 class BackupManager:
     """Comprehensive backup manager for HR Candidate Management Tool"""
@@ -38,6 +51,7 @@ class BackupManager:
         self.last_backup_time = None
         self.backup_thread = None
         self.backup_lock = threading.Lock()
+        self.backup_count = 0  # Track number of operations since last backup
         
         # Statistics
         self.backup_stats = {
@@ -45,11 +59,15 @@ class BackupManager:
             'successful_backups': 0,
             'failed_backups': 0,
             'last_backup_size': 0,
-            'total_backup_size': 0
+            'total_backup_size': 0,
+            'last_error': None
         }
         
         # Initialize blob storage client
         self._initialize_blob_client()
+        
+        # Load existing backup stats
+        self._load_backup_history()
         
         # Start automatic backup scheduler if enabled
         if self.auto_backup_enabled:
@@ -81,6 +99,23 @@ class BackupManager:
             logging.error(f"Failed to ensure backup container exists: {str(e)}")
             raise
     
+    def _load_backup_history(self):
+        """Load backup history and statistics"""
+        try:
+            backups = self.list_backups(limit=1)
+            if backups:
+                self.last_backup_time = backups[0].timestamp
+                self.backup_stats['last_backup_size'] = backups[0].size_bytes
+                
+            # Get total backup count and size
+            all_backups = self.list_backups()
+            self.backup_stats['total_backups'] = len(all_backups)
+            self.backup_stats['total_backup_size'] = sum(b.size_bytes for b in all_backups)
+            self.backup_stats['successful_backups'] = len([b for b in all_backups if b.status == 'completed'])
+            
+        except Exception as e:
+            logging.warning(f"Failed to load backup history: {str(e)}")
+    
     def create_backup(self, backup_type: str = 'manual', compress: bool = True, 
                      include_metadata: bool = True) -> Tuple[bool, str, Optional[BackupInfo]]:
         """
@@ -99,6 +134,7 @@ class BackupManager:
         
         with self.backup_lock:
             self.is_backup_in_progress = True
+            backup_info = None
             
             try:
                 # Generate backup name
@@ -107,8 +143,10 @@ class BackupManager:
                 
                 logging.info(f"Starting {backup_type} backup: {backup_name}")
                 
-                # Get database path
+                # Get database path from blob database manager
                 if self.db_manager and hasattr(self.db_manager, 'blob_db'):
+                    # First ensure local database is synced
+                    self.db_manager.blob_db.sync_to_blob()
                     db_path = self.db_manager.blob_db.local_db_path
                 else:
                     db_path = Config.DB_PATH
@@ -122,22 +160,24 @@ class BackupManager:
                 if not backup_data:
                     return False, "Failed to create backup data", None
                 
+                # Create backup info before upload
+                backup_info = BackupInfo(
+                    name=backup_name,
+                    timestamp=timestamp,
+                    size_bytes=len(backup_data),
+                    backup_type=backup_type,
+                    status='in_progress',
+                    compressed=compress,
+                    metadata=self._get_backup_metadata() if include_metadata else {}
+                )
+                
                 # Upload to blob storage
                 success, message = self._upload_backup_to_blob(backup_name, backup_data)
                 
                 if success:
-                    # Create backup info
-                    backup_info = BackupInfo(
-                        name=backup_name,
-                        timestamp=timestamp,
-                        size_bytes=len(backup_data),
-                        backup_type=backup_type,
-                        status='completed',
-                        compressed=compress,
-                        metadata=self._get_backup_metadata() if include_metadata else {}
-                    )
+                    backup_info.status = 'completed'
                     
-                    # Log backup
+                    # Log backup operation
                     self._log_backup_operation(backup_info, 'success')
                     
                     # Update statistics
@@ -151,16 +191,20 @@ class BackupManager:
                     logging.info(f"Backup completed successfully: {backup_name}")
                     return True, f"Backup created successfully: {backup_name}", backup_info
                 else:
-                    self._log_backup_operation(None, 'failed', message)
+                    backup_info.status = 'failed'
+                    self._log_backup_operation(backup_info, 'failed', message)
                     self._update_backup_stats(None, False)
-                    return False, message, None
+                    return False, message, backup_info
                     
             except Exception as e:
                 error_msg = f"Backup failed: {str(e)}"
                 logging.error(error_msg)
-                self._log_backup_operation(None, 'failed', error_msg)
+                if backup_info:
+                    backup_info.status = 'failed'
+                    self._log_backup_operation(backup_info, 'failed', error_msg)
                 self._update_backup_stats(None, False)
-                return False, error_msg, None
+                self.backup_stats['last_error'] = error_msg
+                return False, error_msg, backup_info
             
             finally:
                 self.is_backup_in_progress = False
@@ -185,17 +229,19 @@ class BackupManager:
                 # Combine metadata and database
                 backup_content = {
                     'metadata': metadata,
-                    'database': db_data.hex()  # Convert to hex for JSON serialization
+                    'database': db_data.hex(),  # Convert to hex for JSON serialization
+                    'version': '1.0',
+                    'created_at': datetime.now().isoformat()
                 }
                 
                 # Convert to JSON bytes
-                backup_data = json.dumps(backup_content).encode('utf-8')
+                backup_data = json.dumps(backup_content, indent=2).encode('utf-8')
             else:
                 backup_data = db_data
             
             # Compress if requested
             if compress:
-                backup_data = gzip.compress(backup_data)
+                backup_data = gzip.compress(backup_data, compresslevel=6)
             
             return backup_data
             
@@ -209,7 +255,8 @@ class BackupManager:
             'timestamp': datetime.now().isoformat(),
             'app_version': Config.APP_VERSION,
             'database_version': '1.0',
-            'backup_tool': 'hr_backup_manager'
+            'backup_tool': 'hr_backup_manager',
+            'source': 'blob_database'
         }
         
         # Add database statistics if available
@@ -223,6 +270,12 @@ class BackupManager:
                 })
         except Exception as e:
             logging.warning(f"Failed to get database stats for metadata: {str(e)}")
+        
+        # Add backup statistics
+        metadata.update({
+            'backup_number': self.backup_stats['total_backups'] + 1,
+            'previous_backup_time': self.last_backup_time.isoformat() if self.last_backup_time else None
+        })
         
         return metadata
     
@@ -241,7 +294,8 @@ class BackupManager:
                 metadata={
                     'backup_type': 'database',
                     'created_at': datetime.now().isoformat(),
-                    'size_bytes': str(len(backup_data))
+                    'size_bytes': str(len(backup_data)),
+                    'app_version': Config.APP_VERSION
                 }
             )
             
@@ -278,7 +332,15 @@ class BackupManager:
                 except gzip.BadGzipFile:
                     latest_data = backup_data
             else:
-                latest_data = backup_data
+                # If it's JSON with metadata, extract database
+                try:
+                    content = json.loads(backup_data.decode('utf-8'))
+                    if 'database' in content:
+                        latest_data = bytes.fromhex(content['database'])
+                    else:
+                        latest_data = backup_data
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    latest_data = backup_data
             
             latest_blob_client.upload_blob(latest_data, overwrite=True)
             
@@ -384,7 +446,8 @@ class BackupManager:
             if os.path.exists(db_path):
                 backup_path = f"{db_path}.restore_backup_{int(time.time())}"
                 try:
-                    os.rename(db_path, backup_path)
+                    shutil.copy2(db_path, backup_path)
+                    logging.info(f"Current database backed up to: {backup_path}")
                 except Exception as e:
                     logging.warning(f"Failed to backup current database: {str(e)}")
             
@@ -416,9 +479,23 @@ class BackupManager:
             cursor.execute("PRAGMA integrity_check")
             result = cursor.fetchone()
             
+            # Check if main tables exist
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row[0] for row in cursor.fetchall()]
+            required_tables = ['candidates', 'backup_log']
+            
             conn.close()
             
-            return result and result[0] == 'ok'
+            # Verify integrity and required tables
+            integrity_ok = result and result[0] == 'ok'
+            tables_ok = all(table in tables for table in required_tables)
+            
+            if not integrity_ok:
+                logging.error("Database integrity check failed")
+            if not tables_ok:
+                logging.error(f"Required tables missing. Found: {tables}")
+            
+            return integrity_ok and tables_ok
             
         except Exception as e:
             logging.error(f"Database integrity check failed: {str(e)}")
@@ -446,7 +523,7 @@ class BackupManager:
             backups.sort(key=lambda x: x.timestamp, reverse=True)
             
             # Apply limit if specified
-            if limit:
+            if limit and limit > 0:
                 backups = backups[:limit]
             
             return backups
@@ -462,7 +539,11 @@ class BackupManager:
             if len(name_parts) >= 3:
                 backup_type = name_parts[1]
                 timestamp_str = '_'.join(name_parts[2:]).split('.')[0]
-                timestamp = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                try:
+                    timestamp = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                except ValueError:
+                    # Fallback to blob modification time
+                    timestamp = blob.last_modified.replace(tzinfo=None)
             else:
                 backup_type = 'unknown'
                 timestamp = blob.last_modified.replace(tzinfo=None)
@@ -484,6 +565,9 @@ class BackupManager:
     def delete_backup(self, backup_name: str) -> Tuple[bool, str]:
         """Delete a specific backup"""
         try:
+            if backup_name == 'latest.db':
+                return False, "Cannot delete the latest backup"
+            
             blob_client = self.blob_service_client.get_blob_client(
                 container=self.backup_container,
                 blob=backup_name
@@ -519,7 +603,9 @@ class BackupManager:
                     else:
                         logging.warning(f"Failed to delete old backup {backup.name}: {message}")
             
-            logging.info(f"Cleaned up {deleted_count} old backups")
+            if deleted_count > 0:
+                logging.info(f"Cleaned up {deleted_count} old backups")
+            
             return deleted_count, deleted_backups
             
         except Exception as e:
@@ -559,7 +645,8 @@ class BackupManager:
                 'retention_days': self.retention_days,
                 'auto_backup_enabled': self.auto_backup_enabled,
                 'backup_in_progress': self.is_backup_in_progress,
-                'last_backup_time': self.last_backup_time.isoformat() if self.last_backup_time else None
+                'last_backup_time': self.last_backup_time.isoformat() if self.last_backup_time else None,
+                'last_error': self.backup_stats.get('last_error')
             }
             
             # Add backup type breakdown
@@ -584,34 +671,33 @@ class BackupManager:
                 'auto_backup_enabled': self.auto_backup_enabled,
                 'backup_in_progress': self.is_backup_in_progress,
                 'last_backup_time': None,
-                'backup_types': {}
+                'backup_types': {},
+                'last_error': self.backup_stats.get('last_error')
             }
     
     def _log_backup_operation(self, backup_info: Optional[BackupInfo], status: str, message: str = ""):
         """Log backup operation to database"""
         try:
-            if self.db_manager:
-                conn = self.db_manager.get_connection() if hasattr(self.db_manager, 'get_connection') else None
+            if self.db_manager and hasattr(self.db_manager, 'blob_db'):
+                conn = self.db_manager.blob_db.get_connection()
+                cursor = conn.cursor()
                 
-                if not conn and hasattr(self.db_manager, 'blob_db'):
-                    conn = self.db_manager.blob_db.get_connection()
+                cursor.execute('''
+                    INSERT INTO backup_log (backup_name, status, file_size, backup_time)
+                    VALUES (?, ?, ?, ?)
+                ''', (
+                    backup_info.name if backup_info else 'unknown',
+                    status,
+                    backup_info.size_bytes if backup_info else 0,
+                    datetime.now()
+                ))
                 
-                if conn:
-                    cursor = conn.cursor()
-                    
-                    cursor.execute('''
-                        INSERT INTO backup_log (backup_name, status, file_size, backup_time)
-                        VALUES (?, ?, ?, ?)
-                    ''', (
-                        backup_info.name if backup_info else 'unknown',
-                        status,
-                        backup_info.size_bytes if backup_info else 0,
-                        datetime.now()
-                    ))
-                    
-                    conn.commit()
-                    conn.close()
-                    
+                conn.commit()
+                conn.close()
+                
+                # Sync after logging
+                self.db_manager.blob_db.sync_to_blob()
+                
         except Exception as e:
             logging.warning(f"Failed to log backup operation: {str(e)}")
     
@@ -623,6 +709,7 @@ class BackupManager:
             self.backup_stats['successful_backups'] += 1
             self.backup_stats['last_backup_size'] = backup_info.size_bytes
             self.backup_stats['total_backup_size'] += backup_info.size_bytes
+            self.backup_stats['last_error'] = None
         else:
             self.backup_stats['failed_backups'] += 1
     
@@ -637,10 +724,15 @@ class BackupManager:
                     # Check if we need to create an automatic backup
                     if self._should_create_auto_backup():
                         logging.info("Creating scheduled automatic backup")
-                        self.create_backup(backup_type='auto', compress=True)
+                        success, message, backup_info = self.create_backup(backup_type='auto', compress=True)
                         
-                        # Cleanup old backups
-                        self.cleanup_old_backups()
+                        if success:
+                            # Cleanup old backups after successful auto backup
+                            cleanup_count, cleaned_files = self.cleanup_old_backups()
+                            if cleanup_count > 0:
+                                logging.info(f"Auto-cleanup removed {cleanup_count} old backups")
+                        else:
+                            logging.error(f"Auto backup failed: {message}")
                         
                 except Exception as e:
                     logging.error(f"Error in backup scheduler: {str(e)}")
@@ -665,6 +757,21 @@ class BackupManager:
             logging.error(f"Error checking backup schedule: {str(e)}")
             return False
     
+    def trigger_backup_on_operations(self, operation_count: int = 5):
+        """Trigger backup after a certain number of database operations"""
+        self.backup_count += 1
+        
+        if self.backup_count >= operation_count:
+            try:
+                success, message, backup_info = self.create_backup(backup_type='auto', compress=True)
+                if success:
+                    logging.info(f"Triggered auto backup after {operation_count} operations")
+                    self.backup_count = 0  # Reset counter
+                else:
+                    logging.warning(f"Auto backup failed: {message}")
+            except Exception as e:
+                logging.error(f"Error triggering auto backup: {str(e)}")
+    
     def force_backup_now(self) -> Tuple[bool, str, Optional[BackupInfo]]:
         """Force an immediate backup (for manual triggers)"""
         return self.create_backup(backup_type='manual', compress=True, include_metadata=True)
@@ -675,7 +782,8 @@ class BackupManager:
             health = {
                 'status': 'healthy',
                 'issues': [],
-                'last_check': datetime.now().isoformat()
+                'last_check': datetime.now().isoformat(),
+                'recommendations': []
             }
             
             # Check blob storage connectivity
@@ -692,14 +800,25 @@ class BackupManager:
                 if hours_since_backup > 48:  # More than 48 hours
                     health['status'] = 'warning'
                     health['issues'].append(f"Last backup was {hours_since_backup:.1f} hours ago")
+                    health['recommendations'].append("Consider creating a manual backup")
             else:
                 health['status'] = 'warning'
                 health['issues'].append("No backups found")
+                health['recommendations'].append("Create your first backup")
             
             # Check backup space usage
             stats = self.get_backup_stats()
             if stats['total_size_mb'] > 1000:  # More than 1GB
                 health['issues'].append(f"Backup storage usage is high: {stats['total_size_mb']:.1f} MB")
+                health['recommendations'].append("Consider cleaning up old backups")
+            
+            # Check if auto backup is working
+            if self.auto_backup_enabled and self.backup_stats['failed_backups'] > 0:
+                failure_rate = self.backup_stats['failed_backups'] / max(self.backup_stats['total_backups'], 1)
+                if failure_rate > 0.2:  # More than 20% failure rate
+                    health['status'] = 'warning'
+                    health['issues'].append(f"High backup failure rate: {failure_rate:.1%}")
+                    health['recommendations'].append("Check backup system configuration")
             
             return health
             
@@ -707,5 +826,50 @@ class BackupManager:
             return {
                 'status': 'unhealthy',
                 'issues': [f"Health check failed: {str(e)}"],
-                'last_check': datetime.now().isoformat()
+                'last_check': datetime.now().isoformat(),
+                'recommendations': ['Check system logs and configuration']
             }
+    
+    def export_backup_config(self) -> Dict[str, Any]:
+        """Export current backup configuration"""
+        return {
+            'backup_container': self.backup_container,
+            'retention_days': self.retention_days,
+            'auto_backup_enabled': self.auto_backup_enabled,
+            'stats': self.backup_stats.copy(),
+            'last_backup_time': self.last_backup_time.isoformat() if self.last_backup_time else None
+        }
+    
+    def get_restore_points(self) -> List[Dict[str, Any]]:
+        """Get available restore points with detailed information"""
+        backups = self.list_backups()
+        restore_points = []
+        
+        for backup in backups:
+            restore_point = {
+                'name': backup.name,
+                'display_name': self._format_backup_display_name(backup),
+                'timestamp': backup.timestamp.isoformat(),
+                'age_hours': (datetime.now() - backup.timestamp).total_seconds() / 3600,
+                'size_mb': round(backup.size_bytes / (1024 * 1024), 2),
+                'type': backup.backup_type,
+                'compressed': backup.compressed,
+                'metadata': backup.metadata
+            }
+            restore_points.append(restore_point)
+        
+        return restore_points
+    
+    def _format_backup_display_name(self, backup: BackupInfo) -> str:
+        """Format backup name for display"""
+        age = datetime.now() - backup.timestamp
+        if age.days > 0:
+            age_str = f"{age.days} days ago"
+        elif age.seconds > 3600:
+            age_str = f"{age.seconds // 3600} hours ago"
+        else:
+            age_str = f"{age.seconds // 60} minutes ago"
+        
+        type_emoji = {"manual": "👤", "auto": "🤖", "scheduled": "⏰"}.get(backup.backup_type, "📦")
+        
+        return f"{type_emoji} {backup.backup_type.title()} - {backup.timestamp.strftime('%Y-%m-%d %H:%M')} ({age_str})"

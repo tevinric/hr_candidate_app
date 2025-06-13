@@ -21,7 +21,7 @@ class Config:
     
     # Azure Blob Storage Configuration
     AZURE_STORAGE_CONNECTION_STRING: Optional[str] = os.environ.get('AZURE_STORAGE_CONNECTION_STRING')
-    BACKUP_CONTAINER: str = os.environ.get('BACKUP_CONTAINER', 'hr-backups')
+    BACKUP_CONTAINER: str = os.environ.get('BACKUP_CONTAINER', 'appdatabackups')
 
     # Azure OpenAI Configuration
     AZURE_OPENAI_ENDPOINT: Optional[str] = os.environ.get('AZURE_OPENAI_ENDPOINT')
