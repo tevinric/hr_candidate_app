@@ -21,6 +21,7 @@ echo "Storage: ${AZURE_STORAGE_CONNECTION_STRING:0:50}..."
 echo "OpenAI Endpoint: $AZURE_OPENAI_ENDPOINT"
 
 # 4. Run the container
+## template
 docker run -d \
   --name hr-candidate-tool \
   -e AZURE_STORAGE_CONNECTION_STRING="$AZURE_STORAGE_CONNECTION_STRING" \
@@ -38,6 +39,26 @@ docker run -d \
   -v hr-data:/home/data \
   --restart unless-stopped \
   hr-candidate-app
+
+## My image
+docker run -d \
+  --name kts_app_tool \
+  -e AZURE_STORAGE_CONNECTION_STRING="$AZURE_STORAGE_CONNECTION_STRING" \
+  -e AZURE_OPENAI_ENDPOINT="$AZURE_OPENAI_ENDPOINT" \
+  -e AZURE_OPENAI_API_KEY="$AZURE_OPENAI_API_KEY" \
+  -e AZURE_OPENAI_API_VERSION="$AZURE_OPENAI_API_VERSION" \
+  -e AZURE_OPENAI_DEPLOYMENT_NAME="$AZURE_OPENAI_DEPLOYMENT_NAME" \
+  -e DB_CONTAINER="$DB_CONTAINER" \
+  -e DB_BLOB_NAME="$DB_BLOB_NAME" \
+  -e LOCAL_DB_PATH="$LOCAL_DB_PATH" \
+  -e BACKUP_CONTAINER="$BACKUP_CONTAINER" \
+  -e AUTO_BACKUP_ENABLED="$AUTO_BACKUP_ENABLED" \
+  -e LOG_LEVEL="$LOG_LEVEL" \
+  -p 8501:8501 \
+  -v hr-data:/home/data \
+  --restart unless-stopped \
+  kts_app
+
 
 # 5. Check if it's running
 docker logs hr-candidate-tool

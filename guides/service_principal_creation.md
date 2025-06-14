@@ -19,7 +19,7 @@ A service principal is an identity created for applications, hosted services, an
 ### Step 1: Navigate to Azure Active Directory
 
 1. **Login to Azure Portal**: Go to https://portal.azure.com
-2. **Search for "Azure Active Directory"** in the top search bar
+2. **Search for "Azure Active Directory"** in the top search bar. This may also be called EntraID
 3. **Click on "Azure Active Directory"** from the results
 
 ### Step 2: Create App Registration

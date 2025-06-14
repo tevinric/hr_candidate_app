@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 env:
-  AZURE_WEBAPP_NAME: 'hr-candidate-tool'    # Replace with your app name
-  REGISTRY_NAME: 'hrtools'                   # Replace with your ACR name
+  AZURE_WEBAPP_NAME: 'ktsapp'    # Replace with your app name from Step 1.1
+  REGISTRY_NAME: 'ktsacr'            # Replace with your ACR name from Step 1.1
   IMAGE_NAME: 'hr-candidate-app'
 
 jobs:
@@ -39,7 +39,7 @@ jobs:
           
           # Create app_data container if it doesn't exist
           az storage container create \
-            --name app_data \
+            --name app-data \
             --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
             --output none || echo "Container might already exist"
           
@@ -60,7 +60,7 @@ jobs:
           
           # Download latest database if it exists in app_data container
           az storage blob download \
-            --container-name app_data \
+            --container-name app-data \
             --name hr_candidates.db \
             --file current_database.db \
             --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
@@ -107,7 +107,7 @@ jobs:
           AZURE_OPENAI_API_VERSION="${{ secrets.AZURE_OPENAI_API_VERSION }}" \
           AZURE_OPENAI_DEPLOYMENT_NAME="${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
           BACKUP_CONTAINER="hr-backups" \
-          DB_CONTAINER="app_data" \
+          DB_CONTAINER="app-data" \
           DB_BLOB_NAME="hr_candidates.db" \
           LOCAL_DB_PATH="/tmp/hr_candidates.db" \
           AUTO_SYNC_ENABLED="True" \
