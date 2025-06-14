@@ -146,6 +146,40 @@ class DatabaseManager:
             logging.error(f"Error updating candidate: {str(e)}")
             return False, f"Error updating candidate: {str(e)}"
 
+    def delete_candidate(self, email: str) -> Tuple[bool, str]:
+        """Delete a candidate from the database"""
+        try:
+            # Check if candidate exists
+            existing_candidate = self.get_candidate_by_email(email)
+            if not existing_candidate:
+                return False, f"Candidate with email {email} not found"
+            
+            conn = self.blob_db.get_connection()
+            cursor = conn.cursor()
+            
+            # Delete the candidate
+            cursor.execute("DELETE FROM candidates WHERE email = ?", (email,))
+            
+            if cursor.rowcount == 0:
+                conn.close()
+                return False, f"No candidate found with email {email}"
+            
+            conn.commit()
+            conn.close()
+            
+            # Sync to blob storage
+            self.blob_db.sync_to_blob()
+            
+            # Schedule backup after deletion
+            self._schedule_backup()
+            
+            logging.info(f"Candidate with email {email} deleted successfully")
+            return True, "Candidate deleted successfully"
+            
+        except Exception as e:
+            logging.error(f"Error deleting candidate: {str(e)}")
+            return False, f"Error deleting candidate: {str(e)}"
+
     def search_candidates(self, search_criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Search candidates based on criteria"""
         try:
@@ -197,12 +231,13 @@ class DatabaseManager:
             return []
     
     def search_candidates_by_job_requirements(self, requirements: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Search candidates based on job requirements"""
+        """Enhanced search for candidates based on comprehensive job requirements"""
         try:
             conn = self.blob_db.get_connection()
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
+            # Get all candidates first
             cursor.execute("SELECT * FROM candidates")
             rows = cursor.fetchall()
             
@@ -216,7 +251,9 @@ class DatabaseManager:
                 candidate['qualifications'] = json.loads(candidate.get('qualifications', '[]'))
                 candidate['achievements'] = json.loads(candidate.get('achievements', '[]'))
                 
-                candidates.append(candidate)
+                # Apply enhanced filtering based on job requirements
+                if self._candidate_matches_job_requirements(candidate, requirements):
+                    candidates.append(candidate)
             
             conn.close()
             return candidates
@@ -224,6 +261,112 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Error searching candidates by job requirements: {str(e)}")
             return []
+    
+    def _candidate_matches_job_requirements(self, candidate: Dict[str, Any], requirements: Dict[str, Any]) -> bool:
+        """Enhanced filtering logic to determine if a candidate matches job requirements"""
+        try:
+            # Minimum experience years filter
+            min_experience = requirements.get('min_experience_years', 0)
+            if min_experience > 0:
+                candidate_experience_count = len(candidate.get('experience', []))
+                if candidate_experience_count < min_experience:
+                    return False
+            
+            # Industry matching (if specified and candidate has industry)
+            required_industry = requirements.get('industry', '').lower()
+            candidate_industry = candidate.get('industry', '').lower()
+            if required_industry and candidate_industry:
+                if required_industry not in candidate_industry and candidate_industry not in required_industry:
+                    # Skip if industries are completely unrelated (unless candidate has no industry specified)
+                    industry_keywords = required_industry.split()
+                    if not any(keyword in candidate_industry for keyword in industry_keywords):
+                        return False
+            
+            # Critical skills filter - candidate must have at least some required skills
+            required_skills = requirements.get('required_skills', [])
+            if required_skills:
+                candidate_skills = [skill.get('skill', '').lower() for skill in candidate.get('skills', [])]
+                candidate_technologies = []
+                
+                # Also collect technologies from experience
+                for exp in candidate.get('experience', []):
+                    candidate_technologies.extend([tech.lower() for tech in exp.get('technologies', [])])
+                
+                all_candidate_skills = set(candidate_skills + candidate_technologies)
+                
+                # Check if candidate has at least 25% of required skills
+                matching_skills = 0
+                for required_skill in required_skills:
+                    skill_lower = required_skill.lower()
+                    if any(skill_lower in candidate_skill or candidate_skill in skill_lower for candidate_skill in all_candidate_skills):
+                        matching_skills += 1
+                
+                # Require at least 25% skill match for filtering, or at least 1 skill for small requirement lists
+                min_required_match = max(1, len(required_skills) // 4)
+                if matching_skills < min_required_match:
+                    return False
+            
+            # Technology matching - similar to skills but for specific technologies
+            required_technologies = requirements.get('technologies', [])
+            if required_technologies:
+                candidate_technologies = []
+                candidate_skills = [skill.get('skill', '').lower() for skill in candidate.get('skills', [])]
+                
+                # Collect technologies from experience
+                for exp in candidate.get('experience', []):
+                    candidate_technologies.extend([tech.lower() for tech in exp.get('technologies', [])])
+                
+                all_candidate_tech = set(candidate_technologies + candidate_skills)
+                
+                # Check for technology matches
+                matching_tech = 0
+                for required_tech in required_technologies:
+                    tech_lower = required_tech.lower()
+                    if any(tech_lower in candidate_tech or candidate_tech in tech_lower for candidate_tech in all_candidate_tech):
+                        matching_tech += 1
+                
+                # Require at least some technology match if technologies are specified
+                if len(required_technologies) > 3 and matching_tech == 0:
+                    return False
+            
+            # Experience area matching - check if candidate has relevant experience areas
+            required_experience_areas = requirements.get('required_experience_areas', [])
+            if required_experience_areas:
+                candidate_experience_text = ""
+                for exp in candidate.get('experience', []):
+                    candidate_experience_text += f" {exp.get('position', '')} {' '.join(exp.get('responsibilities', []))}"
+                
+                candidate_experience_text = candidate_experience_text.lower()
+                
+                matching_areas = 0
+                for area in required_experience_areas:
+                    area_lower = area.lower()
+                    if area_lower in candidate_experience_text:
+                        matching_areas += 1
+                
+                # Require at least some experience area match
+                if len(required_experience_areas) > 2 and matching_areas == 0:
+                    return False
+            
+            # Seniority level filter (basic check)
+            required_seniority = requirements.get('seniority_level', '').lower()
+            if required_seniority and required_seniority in ['senior', 'lead', 'principal', 'director']:
+                candidate_role = candidate.get('current_role', '').lower()
+                candidate_experience_count = len(candidate.get('experience', []))
+                
+                # Basic seniority check - senior roles typically need more experience
+                if 'senior' in required_seniority and candidate_experience_count < 3:
+                    if 'senior' not in candidate_role and 'lead' not in candidate_role:
+                        return False
+                elif 'lead' in required_seniority and candidate_experience_count < 4:
+                    if 'lead' not in candidate_role and 'senior' not in candidate_role and 'principal' not in candidate_role:
+                        return False
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error in candidate matching logic: {str(e)}")
+            return True  # Return True on error to avoid filtering out candidates
     
     def get_dashboard_stats(self) -> Dict[str, Any]:
         """Get dashboard statistics"""

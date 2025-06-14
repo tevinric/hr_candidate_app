@@ -191,20 +191,20 @@ class CVProcessor:
         """
     
     def extract_job_requirements(self, job_description: str) -> Optional[Dict[str, Any]]:
-        """Extract requirements from job description using OpenAI"""
+        """Extract comprehensive requirements from job description using OpenAI"""
         if not self.client:
             logging.error("OpenAI client not initialized")
             return None
         
         try:
-            prompt = self._create_job_extraction_prompt(job_description)
+            prompt = self._create_enhanced_job_extraction_prompt(job_description)
             
             response = self.client.chat.completions.create(
                 model=Config.AZURE_OPENAI_DEPLOYMENT_NAME,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert HR assistant that extracts job requirements from job descriptions. Always respond with valid JSON format."
+                        "content": "You are an expert HR assistant that extracts comprehensive job requirements from job descriptions. Always respond with valid JSON format. Extract as much detail as possible to enable effective candidate matching."
                     },
                     {
                         "role": "user",
@@ -212,7 +212,7 @@ class CVProcessor:
                     }
                 ],
                 temperature=0.1,
-                max_tokens=1000
+                max_tokens=2000
             )
             
             content = response.choices[0].message.content
@@ -223,7 +223,7 @@ class CVProcessor:
                 json_str = json_match.group()
                 requirements = json.loads(json_str)
                 
-                logging.info("Successfully extracted job requirements")
+                logging.info("Successfully extracted comprehensive job requirements")
                 return requirements
             else:
                 logging.error("No valid JSON found in job requirements response")
@@ -236,29 +236,58 @@ class CVProcessor:
             logging.error(f"Error extracting job requirements: {str(e)}")
             return None
     
-    def _create_job_extraction_prompt(self, job_description: str) -> str:
-        """Create prompt for job requirements extraction"""
+    def _create_enhanced_job_extraction_prompt(self, job_description: str) -> str:
+        """Create enhanced prompt for comprehensive job requirements extraction"""
         return f"""
-        Extract the following information from this job description and return it as a JSON object:
+        Extract comprehensive information from this job description to enable effective candidate matching. 
+        Return as a JSON object with the following structure:
 
         Required fields:
         - job_title: Job title/position
-        - industry: Industry/sector
+        - industry: Industry/sector (infer if not explicitly stated)
+        - company_size: Company size category (if mentioned: startup, small, medium, large, enterprise)
+        - employment_type: Employment type (full-time, part-time, contract, remote, hybrid, etc.)
+        - location: Job location (city, country, remote, etc.)
+        - salary_range: Salary range if mentioned (extract numbers and currency)
         - min_experience_years: Minimum years of experience required (as integer)
-        - required_skills: Array of required skills (strings)
-        - preferred_skills: Array of preferred/nice-to-have skills (strings)
-        - required_qualifications: Array of required educational qualifications (strings)
-        - job_type: Employment type (full-time, part-time, contract, etc.)
-        - location: Job location
-        - salary_range: Salary range if mentioned
-        - key_responsibilities: Array of main job responsibilities (strings)
+        - preferred_experience_years: Preferred years of experience (as integer, if different from minimum)
+        
+        - required_skills: Array of absolutely required/mandatory skills (technical and soft skills)
+        - preferred_skills: Array of preferred/nice-to-have skills 
+        - technologies: Array of specific technologies, tools, software, programming languages, frameworks mentioned
+        - required_qualifications: Array of required educational qualifications, degrees, certifications
+        - preferred_qualifications: Array of preferred educational qualifications
+        
+        - key_responsibilities: Array of main job responsibilities and duties
+        - required_experience_areas: Array of specific areas of experience needed (e.g., "project management", "team leadership", "client relations")
+        - industry_experience: Array of specific industries experience is preferred in
+        - team_leadership: Boolean - does role require leading/managing people
+        - client_facing: Boolean - does role involve direct client/customer interaction
+        - project_management: Boolean - does role involve managing projects
+        
+        - seniority_level: Level of seniority (entry, junior, mid, senior, lead, principal, director, vp, etc.)
+        - reporting_structure: Who this role reports to (if mentioned)
+        - team_size_management: Number of people to manage (if mentioned)
+        
+        - required_achievements: Array of specific types of achievements or results expected
+        - performance_indicators: Array of KPIs or success metrics mentioned
+        - growth_opportunities: Array of career growth/development opportunities mentioned
+        
+        - special_requirements: Array of any special requirements (travel, certifications, security clearance, etc.)
+        - work_arrangement: Work arrangement details (remote, on-site, hybrid, travel requirements)
+        - benefits_mentioned: Array of benefits or perks mentioned
 
-        Instructions:
-        1. Extract only explicit requirements, don't assume
-        2. For skills, include both technical and soft skills mentioned
-        3. If minimum experience is not clearly stated, estimate based on role level
-        4. Return valid JSON only, no additional text
-        5. Use empty string or empty array if information is not available
+        Extraction Guidelines:
+        1. Be thorough - extract as much relevant information as possible
+        2. Distinguish between "required" and "preferred" - use context clues like "must have", "required", vs "nice to have", "preferred"
+        3. Infer information when reasonable (e.g., if role mentions "Spring Boot", include "Java" in technologies)
+        4. For experience years, look for phrases like "3+ years", "minimum 5 years", "at least 2 years"
+        5. Extract specific technologies, even if mentioned within longer descriptions
+        6. Pay attention to seniority indicators in job titles and descriptions
+        7. Look for industry-specific requirements and terminology
+        8. Extract measurable requirements (team size, budget responsibility, etc.)
+        9. If information is not available or not mentioned, use empty string, empty array, or null as appropriate
+        10. For boolean fields, make reasonable inferences based on responsibilities described
 
         Job Description:
         {job_description}
