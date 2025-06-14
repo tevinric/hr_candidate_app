@@ -10,6 +10,7 @@ env:
   AZURE_WEBAPP_NAME: 'ktsapp'    # Replace with your app name from Step 1.1
   REGISTRY_NAME: 'ktsacr'            # Replace with your ACR name from Step 1.1
   IMAGE_NAME: 'hr-candidate-app'
+name: Deploy HR Candidate Tool to Azure
 
 jobs:
   build-and-deploy:
@@ -29,49 +30,24 @@ jobs:
         username: ${{ secrets.ACR_USERNAME }}
         password: ${{ secrets.ACR_PASSWORD }}
 
-    - name: Ensure app_data container exists
+    - name: Ensure storage containers exist
       continue-on-error: true
       run: |
         if [ -n "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" ]; then
-          echo "Ensuring app_data container exists..."
+          echo "Ensuring storage containers exist..."
           # Install Azure CLI
           curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
           
-          # Create app_data container if it doesn't exist
+          # Create containers if they don't exist
           az storage container create \
             --name appdata \
             --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
             --output none || echo "Container might already exist"
           
-          # Also ensure backup container exists
           az storage container create \
             --name hr-backups \
             --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
             --output none || echo "Backup container might already exist"
-        fi
-
-    - name: Download latest database backup (if exists)
-      continue-on-error: true
-      run: |
-        if [ -n "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" ]; then
-          echo "Attempting to download latest database from app_data container..."
-          # Install Azure CLI if not already installed
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          
-          # Download latest database if it exists in app_data container
-          az storage blob download \
-            --container-name appdata \
-            --name hr_candidates.db \
-            --file current_database.db \
-            --connection-string "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
-            --output none || echo "No database found in app_data container"
-            
-          # If database exists, we'll use it in the container
-          if [ -f "current_database.db" ]; then
-            echo "Database downloaded successfully from app_data container"
-            mkdir -p docker-data
-            mv current_database.db docker-data/hr_candidates.db
-          fi
         fi
 
     - name: Build and push Docker image
@@ -79,23 +55,51 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }},${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
+        tags: |
+          ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
         platforms: linux/amd64
-        # Removed cache configuration to fix buildx issue
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Log in to Azure
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Deploy to Azure Web App
-      uses: azure/webapps-deploy@v2
-      with:
-        app-name: ${{ env.AZURE_WEBAPP_NAME }}
-        images: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-    - name: Configure Web App Settings
+    - name: Configure Web App Container Settings
       run: |
+        echo "🔧 Configuring Web App container settings..."
+        
+        # Configure container settings
+        az webapp config container set \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
+          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+          --docker-custom-image-name "${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}" \
+          --docker-registry-server-url "https://${{ env.REGISTRY_NAME }}.azurecr.io" \
+          --docker-registry-server-user "${{ secrets.ACR_USERNAME }}" \
+          --docker-registry-server-password "${{ secrets.ACR_PASSWORD }}"
+        
+        # Enable container logging
+        az webapp log config \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
+          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+          --docker-container-logging filesystem
+        
+        # Set container-specific settings
+        az webapp config appsettings set \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
+          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+          --settings \
+          WEBSITES_ENABLE_APP_SERVICE_STORAGE=false \
+          WEBSITES_PORT=8501 \
+          DOCKER_REGISTRY_SERVER_URL="https://${{ env.REGISTRY_NAME }}.azurecr.io" \
+          DOCKER_REGISTRY_SERVER_USERNAME="${{ secrets.ACR_USERNAME }}" \
+          DOCKER_REGISTRY_SERVER_PASSWORD="${{ secrets.ACR_PASSWORD }}"
+
+    - name: Configure Application Settings
+      run: |
+        echo "⚙️ Configuring application settings..."
         az webapp config appsettings set \
           --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
           --name ${{ env.AZURE_WEBAPP_NAME }} \
@@ -119,34 +123,78 @@ jobs:
 
     - name: Restart Web App
       run: |
+        echo "🔄 Restarting web app..."
         az webapp restart \
           --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
           --name ${{ env.AZURE_WEBAPP_NAME }}
 
     - name: Verify deployment
       run: |
-        echo "Waiting for application to start..."
-        sleep 30
+        echo "✅ Waiting for application to start..."
+        sleep 45
+        
+        # Check app status
+        APP_STATE=$(az webapp show \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
+          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+          --query "state" \
+          --output tsv)
+        
+        echo "App State: $APP_STATE"
         
         # Try to access the health endpoint
-        curl -f https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/_stcore/health || echo "Health check failed"
+        APP_URL="https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+        echo "Testing application at: $APP_URL"
         
-        echo "Deployment completed. Application should be available at:"
-        echo "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+        # Wait a bit more and test
+        sleep 30
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$APP_URL" || echo "000")
+        echo "HTTP Status: $HTTP_STATUS"
+        
+        if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "302" ]; then
+          echo "✅ Application is responding successfully!"
+        else
+          echo "⚠️  Application might still be starting up. HTTP Status: $HTTP_STATUS"
+          echo "Check logs with: az webapp log tail --name ${{ env.AZURE_WEBAPP_NAME }} --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}"
+        fi
+        
+        echo ""
+        echo "🎉 Deployment completed!"
+        echo "🌐 Application URL: $APP_URL"
+        echo ""
+        echo "📋 To check logs if needed:"
+        echo "az webapp log tail --name ${{ env.AZURE_WEBAPP_NAME }} --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}"
 
-  backup-verification:
+  verify-deployment:
     needs: build-and-deploy
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     
     steps:
-    - name: Verify backup functionality
+    - name: Log in to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+    - name: Extended Verification
       run: |
-        echo "Backup verification job completed"
-        echo "Manual verification recommended:"
-        echo "1. Check that application can create backups"
-        echo "2. Verify backup restoration works"
-        echo "3. Test CV upload and processing"
-        echo "4. Test candidate search functionality"
-        echo "5. Verify database sync operations"
-        echo "6. Test blob storage connectivity"
+        echo "🔍 Running extended verification..."
+        
+        # Check container status
+        echo "Container Status:"
+        az webapp show \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
+          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+          --query "{state: state, hostNames: hostNames, containerSettings: siteConfig.linuxFxVersion}" \
+          --output table
+        
+        # Check recent logs
+        echo ""
+        echo "📋 Recent logs:"
+        timeout 30s az webapp log tail \
+          --name ${{ env.AZURE_WEBAPP_NAME }} \
+          --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} || echo "Log retrieval completed"
+        
+        echo ""
+        echo "✅ Extended verification completed"
+        echo "🔗 Direct link: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
