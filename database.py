@@ -146,6 +146,36 @@ class DatabaseManager:
             logging.error(f"Error updating candidate: {str(e)}")
             return False, f"Error updating candidate: {str(e)}"
 
+    def delete_candidate(self, email: str) -> Tuple[bool, str]:
+        """Delete a candidate by email address"""
+        try:
+            # Check if candidate exists
+            existing_candidate = self.get_candidate_by_email(email)
+            if not existing_candidate:
+                return False, f"Candidate with email {email} not found"
+            
+            conn = self.blob_db.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("DELETE FROM candidates WHERE email = ?", (email,))
+            
+            if cursor.rowcount == 0:
+                conn.close()
+                return False, f"No candidate found with email {email}"
+            
+            conn.commit()
+            conn.close()
+            
+            # Sync to blob storage
+            self.blob_db.sync_to_blob()
+            
+            logging.info(f"Candidate with email {email} deleted successfully")
+            return True, "Candidate deleted successfully"
+            
+        except Exception as e:
+            logging.error(f"Error deleting candidate: {str(e)}")
+            return False, f"Error deleting candidate: {str(e)}"
+
     def search_candidates(self, search_criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Search candidates based on criteria"""
         try:
