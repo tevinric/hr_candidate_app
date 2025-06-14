@@ -679,4 +679,21 @@ def show_user_profile():
             if st.button("🚪 Sign Out", use_container_width=True):
                 auth_manager = st.session_state.auth_manager
                 auth_manager.logout()
+                
+                # Reset user session state manually to avoid circular import
+                st.session_state.user_session_initialized = False
+                st.session_state.db_initialized = False
+                
+                # Clear database manager to force re-initialization on next login
+                if 'db_manager' in st.session_state:
+                    del st.session_state['db_manager']
+                
+                # Clear all cached data
+                if 'cached_search_results' in st.session_state:
+                    del st.session_state['cached_search_results']
+                if 'cached_search_criteria' in st.session_state:
+                    del st.session_state['cached_search_criteria']
+                if 'search_performed' in st.session_state:
+                    st.session_state.search_performed = False
+                
                 st.rerun()

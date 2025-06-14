@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import logging
 from database import DatabaseManager
 from cv_processor import CVProcessor
 
@@ -24,6 +25,8 @@ def initialize_session_state():
         st.session_state.db_error = None
     if 'manual_entry_mode' not in st.session_state:
         st.session_state.manual_entry_mode = False
+    if 'user_session_initialized' not in st.session_state:
+        st.session_state.user_session_initialized = False
     
     # PAGE NAVIGATION STATE
     if 'current_page' not in st.session_state:
@@ -72,6 +75,17 @@ def initialize_session_state():
 def initialize_database_with_retry():
     """Initialize database with retry logic and error handling"""
     if st.session_state.db_initialized and 'db_manager' in st.session_state:
+        # If user just logged in, force refresh from cloud
+        if not st.session_state.user_session_initialized:
+            try:
+                logging.info("New user session detected, forcing database refresh from cloud")
+                st.session_state.db_manager.force_refresh_from_cloud()
+                st.session_state.user_session_initialized = True
+                logging.info("Database refreshed from cloud for new user session")
+            except Exception as e:
+                logging.error(f"Failed to refresh database from cloud: {str(e)}")
+                # Continue anyway, use local version
+        
         return True
     
     max_retries = 3
@@ -82,6 +96,10 @@ def initialize_database_with_retry():
             st.session_state.db_manager = DatabaseManager()
             st.session_state.db_initialized = True
             st.session_state.db_error = None
+            
+            # Mark that we need to initialize user session
+            st.session_state.user_session_initialized = False
+            
             return True
         except Exception as e:
             retry_count += 1
@@ -92,6 +110,59 @@ def initialize_database_with_retry():
                 time.sleep(2)  # Wait before retry
     
     return False
+
+def force_database_refresh():
+    """Force refresh database from cloud - call this when user logs in"""
+    try:
+        if 'db_manager' in st.session_state and st.session_state.db_manager:
+            logging.info("Forcing database refresh from cloud storage")
+            success = st.session_state.db_manager.force_refresh_from_cloud()
+            
+            if success:
+                # Clear cached search results since we have fresh data
+                clear_search_state()
+                logging.info("Database successfully refreshed from cloud")
+                return True
+            else:
+                logging.error("Failed to refresh database from cloud")
+                return False
+        else:
+            logging.warning("Database manager not initialized, cannot refresh")
+            return False
+            
+    except Exception as e:
+        logging.error(f"Error forcing database refresh: {str(e)}")
+        return False
+
+def ensure_database_sync():
+    """Ensure database is synced to cloud after operations"""
+    try:
+        if 'db_manager' in st.session_state and st.session_state.db_manager:
+            success = st.session_state.db_manager.ensure_cloud_sync()
+            if success:
+                logging.info("Database sync to cloud completed")
+            else:
+                logging.warning("Database sync to cloud failed")
+            return success
+        return False
+    except Exception as e:
+        logging.error(f"Error ensuring database sync: {str(e)}")
+        return False
+
+def reset_user_session():
+    """Reset user session state when user logs out"""
+    st.session_state.user_session_initialized = False
+    st.session_state.db_initialized = False
+    
+    # Clear database manager to force re-initialization on next login
+    if 'db_manager' in st.session_state:
+        del st.session_state['db_manager']
+    
+    # Clear all cached data
+    clear_search_state()
+    clear_form_session_state()
+    
+    logging.info("User session reset - database will refresh from cloud on next login")
 
 def clear_form_session_state():
     """Clear form-related session state"""

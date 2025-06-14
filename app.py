@@ -268,10 +268,15 @@ def initialize_database_with_retry():
 # Initialize session state
 initialize_session_state()
 
+
 def main():
     # Import authentication modules - NEW IMPORTS
     from auth import init_auth_session_state, is_authenticated
     from landing_page import show_landing_page, show_user_profile
+    from session_management import force_database_refresh
+    
+    # Initialize session state FIRST - CRITICAL
+    initialize_session_state()
     
     # Initialize authentication session state - NEW
     init_auth_session_state()
@@ -288,6 +293,7 @@ def main():
 def show_main_application():
     """Show the main application for authenticated users - NEW FUNCTION"""
     from landing_page import show_user_profile
+    from session_management import force_database_refresh
     
     # Professional header
     st.markdown("""
@@ -300,7 +306,7 @@ def show_main_application():
     # Show user profile in sidebar - NEW FEATURE
     show_user_profile()
     
-    # Initialize database with error handling
+    # Initialize database with error handling and force refresh for new sessions
     if not initialize_database_with_retry():
         st.error("❌ Failed to initialize database. Please check your Azure Storage configuration.")
         st.markdown(f"**Error Details:** {st.session_state.db_error}")
@@ -320,6 +326,14 @@ def show_main_application():
             st.rerun()
         
         st.stop()
+    
+    # Show sync status in a subtle way - only if user session is not initialized
+    if not getattr(st.session_state, 'user_session_initialized', True):
+        with st.spinner("🔄 Syncing with cloud database..."):
+            time.sleep(1)  # Brief pause to show the message
+        st.success("✅ Database synchronized with cloud")
+        time.sleep(1)  # Brief pause to show success
+        st.rerun()  # Refresh to clear the message
     
     # PAGE ROUTING - Check current page and display accordingly
     if st.session_state.current_page == 'candidate_details':

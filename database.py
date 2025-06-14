@@ -77,8 +77,10 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
-            # Sync to blob storage
-            self.blob_db.sync_to_blob()
+            # Ensure sync to blob storage with blocking operation
+            sync_success = self.blob_db.sync_to_blob(force=True)
+            if not sync_success:
+                logging.warning("Failed to sync candidate insertion to cloud, but local save succeeded")
             
             # Schedule backup
             self._schedule_backup()
@@ -137,8 +139,10 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
-            # Sync to blob storage
-            self.blob_db.sync_to_blob()
+            # Ensure sync to blob storage with blocking operation
+            sync_success = self.blob_db.sync_to_blob(force=True)
+            if not sync_success:
+                logging.warning("Failed to sync candidate update to cloud, but local save succeeded")
             
             return True, "Candidate updated successfully"
             
@@ -166,8 +170,10 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
-            # Sync to blob storage
-            self.blob_db.sync_to_blob()
+            # Ensure sync to blob storage with blocking operation
+            sync_success = self.blob_db.sync_to_blob(force=True)
+            if not sync_success:
+                logging.warning("Failed to sync candidate deletion to cloud, but local deletion succeeded")
             
             logging.info(f"Candidate with email {email} deleted successfully")
             return True, "Candidate deleted successfully"
@@ -467,3 +473,39 @@ class DatabaseManager:
     def refresh_database(self) -> bool:
         """Refresh database from blob storage"""
         return self.blob_db.sync_from_blob()
+    
+    def force_refresh_from_cloud(self) -> bool:
+        """Force refresh database from cloud storage - used when user logs in"""
+        try:
+            logging.info("Forcing refresh from cloud storage")
+            # Force download from blob storage
+            success = self.blob_db.sync_from_blob(force=True)
+            
+            if success:
+                # Clear any cached connections
+                self.blob_db.force_download_on_next_connection_flag()
+                logging.info("Successfully refreshed database from cloud")
+            else:
+                logging.error("Failed to refresh database from cloud")
+            
+            return success
+        except Exception as e:
+            logging.error(f"Error in force_refresh_from_cloud: {str(e)}")
+            return False
+    
+    def ensure_cloud_sync(self) -> bool:
+        """Ensure database changes are synced to cloud - blocking operation"""
+        try:
+            logging.info("Ensuring database sync to cloud")
+            # Force sync to cloud with blocking operation
+            success = self.blob_db.sync_to_blob(force=True)
+            
+            if success:
+                logging.info("Database successfully synced to cloud")
+            else:
+                logging.error("Failed to sync database to cloud")
+            
+            return success
+        except Exception as e:
+            logging.error(f"Error in ensure_cloud_sync: {str(e)}")
+            return False
