@@ -8,11 +8,20 @@ class Config:
     """Configuration class for HR Candidate Management Tool"""
     
     # Database Configuration
-    DB_PATH: str = os.environ.get('DB_PATH', '/home/data/hr_candidates.db')
+    DB_PATH: str = os.environ.get('DB_PATH', '/home/data/hr_candidates.db')  # Legacy path for migration
+    
+    # Database in Blob Storage Configuration
+    DB_CONTAINER: str = os.environ.get('DB_CONTAINER', 'appdata')
+    DB_BLOB_NAME: str = os.environ.get('DB_BLOB_NAME', 'hr_candidates.db')
+    LOCAL_DB_PATH: str = os.environ.get('LOCAL_DB_PATH', '/tmp/hr_candidates.db')
+    
+    # Database sync settings
+    AUTO_SYNC_ENABLED: bool = os.environ.get('AUTO_SYNC_ENABLED', 'True').lower() == 'true'
+    SYNC_INTERVAL_SECONDS: int = int(os.environ.get('SYNC_INTERVAL_SECONDS', '300'))  # 5 minutes
     
     # Azure Blob Storage Configuration
     AZURE_STORAGE_CONNECTION_STRING: Optional[str] = os.environ.get('AZURE_STORAGE_CONNECTION_STRING')
-    BACKUP_CONTAINER: str = os.environ.get('BACKUP_CONTAINER', 'hr-backups')
+    BACKUP_CONTAINER: str = os.environ.get('BACKUP_CONTAINER', 'appdatabackups')
 
     # Azure OpenAI Configuration
     AZURE_OPENAI_ENDPOINT: Optional[str] = os.environ.get('AZURE_OPENAI_ENDPOINT')
@@ -22,7 +31,7 @@ class Config:
     
     # Application Configuration
     APP_NAME: str = "HR Candidate Management Tool"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "1.1.0"  # Updated version for blob storage
     DEBUG: bool = os.environ.get('DEBUG', 'False').lower() == 'true'
 
     # Logging Configuration
@@ -66,7 +75,12 @@ class Config:
             'app_name': cls.APP_NAME,
             'app_version': cls.APP_VERSION,
             'debug': cls.DEBUG,
-            'db_path': cls.DB_PATH,
+            'legacy_db_path': cls.DB_PATH,
+            'db_container': cls.DB_CONTAINER,
+            'db_blob_name': cls.DB_BLOB_NAME,
+            'local_db_path': cls.LOCAL_DB_PATH,
+            'auto_sync_enabled': cls.AUTO_SYNC_ENABLED,
+            'sync_interval_seconds': cls.SYNC_INTERVAL_SECONDS,
             'backup_container': cls.BACKUP_CONTAINER,
             'auto_backup_enabled': cls.AUTO_BACKUP_ENABLED,
             'backup_retention_days': cls.BACKUP_RETENTION_DAYS,

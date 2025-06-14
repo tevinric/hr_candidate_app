@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import time
 from datetime import datetime
 import tempfile
 import os
@@ -125,28 +126,34 @@ st.markdown("""
         margin: 0.5rem;
     }
     
-    /* Back button styling */
-    .back-button {
-        background: linear-gradient(90deg, #6b7280 0%, #4b5563 100%);
-        color: white;
+    /* Sync status styling */
+    .sync-status {
+        background: #f0f9ff;
+        border: 1px solid #0ea5e9;
         border-radius: 8px;
-        border: none;
-        padding: 0.5rem 1rem;
-        font-weight: 600;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+    
+    /* Entry method styling */
+    .entry-method {
+        background: #f8fafc;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# Initialize session state with database error handling
 def initialize_session_state():
-    """Initialize all session state variables"""
+    """Initialize all session state variables with database error handling"""
     # Core application state
     if 'extracted_data' not in st.session_state:
         st.session_state.extracted_data = None
     if 'cv_processed' not in st.session_state:
         st.session_state.cv_processed = False
-    if 'db_manager' not in st.session_state:
-        st.session_state.db_manager = DatabaseManager()
     if 'cv_processor' not in st.session_state:
         st.session_state.cv_processor = CVProcessor()
     if 'show_overwrite_dialog' not in st.session_state:
@@ -155,6 +162,12 @@ def initialize_session_state():
         st.session_state.pending_candidate_data = None
     if 'existing_candidate_email' not in st.session_state:
         st.session_state.existing_candidate_email = None
+    if 'db_initialized' not in st.session_state:
+        st.session_state.db_initialized = False
+    if 'db_error' not in st.session_state:
+        st.session_state.db_error = None
+    if 'manual_entry_mode' not in st.session_state:
+        st.session_state.manual_entry_mode = False
     
     # PAGE NAVIGATION STATE
     if 'current_page' not in st.session_state:
@@ -173,56 +186,56 @@ def initialize_session_state():
         st.session_state.selected_candidate = None
     
     # Form data session states for candidate editing
-    if 'edit_name' not in st.session_state:
-        st.session_state.edit_name = ""
-    if 'edit_email' not in st.session_state:
-        st.session_state.edit_email = ""
-    if 'edit_phone' not in st.session_state:
-        st.session_state.edit_phone = ""
-    if 'edit_current_role' not in st.session_state:
-        st.session_state.edit_current_role = ""
-    if 'edit_industry' not in st.session_state:
-        st.session_state.edit_industry = ""
-    if 'edit_notice_period' not in st.session_state:
-        st.session_state.edit_notice_period = ""
-    if 'edit_current_salary' not in st.session_state:
-        st.session_state.edit_current_salary = ""
-    if 'edit_desired_salary' not in st.session_state:
-        st.session_state.edit_desired_salary = ""
-    if 'edit_highest_qualification' not in st.session_state:
-        st.session_state.edit_highest_qualification = ""
-    if 'edit_special_skills' not in st.session_state:
-        st.session_state.edit_special_skills = ""
-    if 'edit_qualifications_list' not in st.session_state:
-        st.session_state.edit_qualifications_list = []
-    if 'edit_skills_list' not in st.session_state:
-        st.session_state.edit_skills_list = []
-    if 'edit_experience_list' not in st.session_state:
-        st.session_state.edit_experience_list = []
-    if 'edit_achievements_list' not in st.session_state:
-        st.session_state.edit_achievements_list = []
+    edit_fields = [
+        'edit_name', 'edit_email', 'edit_phone', 'edit_current_role', 'edit_industry',
+        'edit_notice_period', 'edit_current_salary', 'edit_desired_salary',
+        'edit_highest_qualification', 'edit_special_skills'
+    ]
+    
+    for field in edit_fields:
+        if field not in st.session_state:
+            st.session_state[field] = ""
+    
+    # List fields for editing
+    list_fields = ['edit_qualifications_list', 'edit_skills_list', 'edit_experience_list', 'edit_achievements_list']
+    for field in list_fields:
+        if field not in st.session_state:
+            st.session_state[field] = []
     
     # Form data session states for CV upload
-    if 'form_name' not in st.session_state:
-        st.session_state.form_name = ""
-    if 'form_email' not in st.session_state:
-        st.session_state.form_email = ""
-    if 'form_phone' not in st.session_state:
-        st.session_state.form_phone = ""
-    if 'form_current_role' not in st.session_state:
-        st.session_state.form_current_role = ""
-    if 'form_industry' not in st.session_state:
-        st.session_state.form_industry = ""
-    if 'form_notice_period' not in st.session_state:
-        st.session_state.form_notice_period = ""
-    if 'form_current_salary' not in st.session_state:
-        st.session_state.form_current_salary = ""
-    if 'form_desired_salary' not in st.session_state:
-        st.session_state.form_desired_salary = ""
-    if 'form_highest_qualification' not in st.session_state:
-        st.session_state.form_highest_qualification = ""
-    if 'form_special_skills' not in st.session_state:
-        st.session_state.form_special_skills = ""
+    form_fields = [
+        'form_name', 'form_email', 'form_phone', 'form_current_role', 'form_industry',
+        'form_notice_period', 'form_current_salary', 'form_desired_salary',
+        'form_highest_qualification', 'form_special_skills'
+    ]
+    
+    for field in form_fields:
+        if field not in st.session_state:
+            st.session_state[field] = ""
+
+def initialize_database_with_retry():
+    """Initialize database with retry logic and error handling"""
+    if st.session_state.db_initialized and 'db_manager' in st.session_state:
+        return True
+    
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            st.session_state.db_manager = DatabaseManager()
+            st.session_state.db_initialized = True
+            st.session_state.db_error = None
+            return True
+        except Exception as e:
+            retry_count += 1
+            st.session_state.db_error = str(e)
+            if retry_count >= max_retries:
+                return False
+            else:
+                time.sleep(2)  # Wait before retry
+    
+    return False
 
 # Initialize session state
 initialize_session_state()
@@ -235,6 +248,27 @@ def main():
         <p>AI-Powered CV Processing and Intelligent Candidate Matching</p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Initialize database with error handling
+    if not initialize_database_with_retry():
+        st.error("❌ Failed to initialize database. Please check your Azure Storage configuration.")
+        st.markdown(f"**Error Details:** {st.session_state.db_error}")
+        st.info("💡 **Troubleshooting Tips:**")
+        st.markdown("""
+        1. Verify your Azure Storage connection string is correct
+        2. Ensure the storage account exists and is accessible
+        3. Check that the app_data container exists in your storage account
+        4. Verify network connectivity to Azure Storage
+        5. Try refreshing the page
+        """)
+        
+        if st.button("🔄 Retry Database Connection"):
+            st.session_state.db_initialized = False
+            if 'db_manager' in st.session_state:
+                del st.session_state.db_manager
+            st.rerun()
+        
+        st.stop()
     
     # PAGE ROUTING - Check current page and display accordingly
     if st.session_state.current_page == 'candidate_details':
@@ -251,13 +285,29 @@ def main_application_page():
     </div>
     """, unsafe_allow_html=True)
     
+    # Database status indicator
+    try:
+        sync_status = st.session_state.db_manager.get_sync_status()
+        if sync_status['last_sync_time']:
+            last_sync = sync_status['last_sync_time'].strftime('%H:%M:%S')
+            st.sidebar.success(f"🔗 DB Connected (Last sync: {last_sync})")
+        else:
+            st.sidebar.warning("⚠️ DB Connected (No sync yet)")
+        
+        if sync_status['is_syncing']:
+            st.sidebar.info("🔄 Syncing...")
+            
+    except Exception as e:
+        st.sidebar.error("❌ DB Connection Error")
+        st.sidebar.caption(f"Error: {str(e)}")
+    
     tab = st.sidebar.radio(
         "Select Function", 
-        ["📄 Upload CV", "🔍 Search Candidates", "📊 Dashboard"],
+        ["📄 Add Candidate", "🔍 Search Candidates", "📊 Dashboard"],
         key="main_nav"
     )
     
-    if tab == "📄 Upload CV":
+    if tab == "📄 Add Candidate":
         upload_cv_tab()
     elif tab == "🔍 Search Candidates":
         search_candidates_tab()
@@ -646,11 +696,29 @@ def view_candidate_details(candidate):
 
 # ========== CV UPLOAD TAB ==========
 def upload_cv_tab():
-    st.markdown('<div class="section-header"><h2>📄 Upload and Process CV</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><h2>📄 Add New Candidate</h2></div>', unsafe_allow_html=True)
     
+    # Entry method selection
+    st.markdown('<div class="entry-method">', unsafe_allow_html=True)
+    entry_method = st.radio(
+        "How would you like to add the candidate?",
+        ["📄 Upload CV and Process", "✏️ Manual Entry"],
+        key="entry_method",
+        help="Choose between uploading a CV for AI processing or manually entering candidate details"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    if entry_method == "📄 Upload CV and Process":
+        cv_upload_section()
+    else:
+        manual_entry_section()
+
+def cv_upload_section():
+    """CV Upload and Processing Section"""
     # Professional upload container
     with st.container():
         st.markdown('<div class="form-container">', unsafe_allow_html=True)
+        st.markdown("### 📄 Upload CV File")
         uploaded_file = st.file_uploader(
             "Choose a PDF CV file", 
             type="pdf",
@@ -684,6 +752,7 @@ def upload_cv_tab():
                         if candidate_data:
                             st.session_state.extracted_data = candidate_data
                             st.session_state.cv_processed = True
+                            st.session_state.manual_entry_mode = False
                             
                             # Initialize form data from extracted data
                             initialize_form_data(candidate_data)
@@ -701,6 +770,38 @@ def upload_cv_tab():
     # Show form if CV has been processed
     if st.session_state.cv_processed and st.session_state.extracted_data:
         show_candidate_form()
+
+def manual_entry_section():
+    """Manual Entry Section"""
+    # Initialize manual entry mode if not already set
+    if not st.session_state.manual_entry_mode:
+        initialize_manual_entry_form()
+        st.session_state.manual_entry_mode = True
+        st.session_state.cv_processed = False
+        st.session_state.extracted_data = None
+    
+    # Show the candidate form for manual entry
+    show_candidate_form()
+
+def initialize_manual_entry_form():
+    """Initialize form for manual entry with empty data"""
+    # Initialize dynamic lists first
+    st.session_state.qualifications_list = []
+    st.session_state.skills_list = []
+    st.session_state.experience_list = []
+    st.session_state.achievements_list = []
+    
+    # Initialize form fields with empty values
+    st.session_state.form_name = ""
+    st.session_state.form_email = ""
+    st.session_state.form_phone = ""
+    st.session_state.form_current_role = ""
+    st.session_state.form_industry = ""
+    st.session_state.form_notice_period = ""
+    st.session_state.form_current_salary = ""
+    st.session_state.form_desired_salary = ""
+    st.session_state.form_highest_qualification = ""
+    st.session_state.form_special_skills = ""
 
 def initialize_form_data(data):
     """Initialize form data from extracted CV data"""
@@ -727,8 +828,12 @@ def initialize_form_data(data):
     st.session_state.form_special_skills = data.get('special_skills', '')
 
 def show_candidate_form():
-    st.markdown('<div class="section-header"><h2>📝 Review and Edit Candidate Information</h2></div>', unsafe_allow_html=True)
-    st.markdown('<p style="color: #64748b; font-style: italic;">Please review the extracted information and make any necessary corrections before saving.</p>', unsafe_allow_html=True)
+    if st.session_state.manual_entry_mode:
+        st.markdown('<div class="section-header"><h2>📝 Enter Candidate Information</h2></div>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #64748b; font-style: italic;">Please enter the candidate information manually and save to the database.</p>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="section-header"><h2>📝 Review and Edit Candidate Information</h2></div>', unsafe_allow_html=True)
+        st.markdown('<p style="color: #64748b; font-style: italic;">Please review the extracted information and make any necessary corrections before saving.</p>', unsafe_allow_html=True)
     
     # Handle overwrite confirmation dialog
     if st.session_state.show_overwrite_dialog:
@@ -1100,7 +1205,8 @@ def clear_form_session_state():
         'qualifications_list', 'skills_list', 'experience_list', 'achievements_list',
         'extracted_data', 'cv_processed', 'form_name', 'form_email', 'form_phone',
         'form_current_role', 'form_industry', 'form_notice_period', 'form_current_salary',
-        'form_desired_salary', 'form_highest_qualification', 'form_special_skills'
+        'form_desired_salary', 'form_highest_qualification', 'form_special_skills',
+        'manual_entry_mode'
     ]
     
     for key in keys_to_clear:
@@ -1452,32 +1558,74 @@ def dashboard_tab():
     
     # Get statistics
     stats = st.session_state.db_manager.get_dashboard_stats()
+    sync_status = st.session_state.db_manager.get_sync_status()
     
     # Professional metrics display
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
-        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
         st.metric("Total Candidates", stats.get('total_candidates', 0))
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
         st.metric("Industries", stats.get('unique_industries', 0))
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with col3:
-        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
         st.metric("Avg Experience", f"{stats.get('avg_experience', 0):.1f} years")
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with col4:
-        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
         backup_status = "✅ Active" if st.session_state.db_manager.last_backup_time else "❌ Never"
         st.metric("Backup Status", backup_status)
-        st.markdown('</div>', unsafe_allow_html=True)
     
+    with col5:
+        db_size = f"{stats.get('database_size_mb', 0):.1f} MB"
+        st.metric("DB Size", db_size)
+    
+    # Sync Status Section
     st.markdown("---")
+    st.markdown('<div class="form-container">', unsafe_allow_html=True)
+    st.subheader("🔄 Database Sync Status")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if sync_status['last_sync_time']:
+            st.success(f"✅ Last sync: {sync_status['last_sync_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+        else:
+            st.warning("⚠️ No sync performed yet")
+        
+        if sync_status['is_syncing']:
+            st.info("🔄 Sync in progress...")
+        
+        # Show local database info
+        if sync_status['local_db_exists']:
+            st.info(f"📁 Local DB size: {sync_status['local_db_size'] / (1024*1024):.1f} MB")
+        else:
+            st.warning("⚠️ Local database not found")
+    
+    with col2:
+        sync_col1, sync_col2 = st.columns(2)
+        
+        with sync_col1:
+            if st.button("📤 Sync to Cloud", type="primary", help="Upload local changes to blob storage"):
+                with st.spinner("Syncing to cloud..."):
+                    result = st.session_state.db_manager.sync_database()
+                    if result:
+                        st.success("✅ Sync successful!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Sync failed!")
+        
+        with sync_col2:
+            if st.button("📥 Refresh from Cloud", help="Download latest from blob storage"):
+                with st.spinner("Refreshing from cloud..."):
+                    result = st.session_state.db_manager.refresh_database()
+                    if result:
+                        st.success("✅ Refresh successful!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Refresh failed!")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
     
     # Backup controls with professional styling
     st.markdown('<div class="form-container">', unsafe_allow_html=True)

@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create directory for persistent data
-RUN mkdir -p /home/data && chmod 777 /home/data
+# Create directory for persistent data and ensure tmp permissions
+RUN mkdir -p /home/data && chmod 777 /home/data && chmod 777 /tmp
 
 # Copy requirements first for better Docker layer caching
 COPY requirements.txt .
