@@ -143,6 +143,20 @@ st.markdown("""
         border: 1px solid #e2e8f0;
         margin: 1rem 0;
     }
+    
+    /* Bullet point styling for experience details */
+    .experience-bullet {
+        margin-left: 1rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .experience-section {
+        background: #fafafa;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        border-left: 3px solid #3b82f6;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -490,74 +504,8 @@ def show_candidate_edit_form():
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Experience Section
-    st.markdown('<div class="form-section">', unsafe_allow_html=True)
-    st.markdown("### 💼 Work Experience")
-    
-    # Display experience in expandable sections
-    for i, exp in enumerate(st.session_state.edit_experience_list):
-        with st.expander(f"Position {i+1}: {exp.get('position', 'New Position')}"):
-            col_exp1, col_exp2 = st.columns(2)
-            with col_exp1:
-                exp['position'] = st.text_input(
-                    "Job Title", 
-                    value=exp.get('position', ''),
-                    key=f"edit_pos_{i}"
-                )
-                exp['company'] = st.text_input(
-                    "Company", 
-                    value=exp.get('company', ''),
-                    key=f"edit_comp_{i}"
-                )
-            with col_exp2:
-                exp['years'] = st.text_input(
-                    "Duration", 
-                    value=exp.get('years', ''),
-                    key=f"edit_duration_{i}"
-                )
-            
-            # Responsibilities
-            st.markdown("**Key Responsibilities:**")
-            responsibilities = exp.get('responsibilities', [])
-            
-            # Initialize responsibilities if not exists
-            if not responsibilities:
-                exp['responsibilities'] = ['']
-                responsibilities = exp['responsibilities']
-            
-            for j, resp in enumerate(responsibilities):
-                col_resp1, col_resp2 = st.columns([5, 1])
-                with col_resp1:
-                    responsibilities[j] = st.text_input(
-                        f"Responsibility {j+1}", 
-                        value=resp,
-                        key=f"edit_resp_{i}_{j}"
-                    )
-                with col_resp2:
-                    if st.button("🗑️", key=f"edit_del_resp_{i}_{j}", help="Delete responsibility"):
-                        responsibilities.pop(j)
-                        st.rerun()
-            
-            col_add_resp, col_del_exp = st.columns(2)
-            with col_add_resp:
-                if st.button(f"➕ Add Responsibility", key=f"edit_add_resp_{i}"):
-                    responsibilities.append('')
-                    st.rerun()
-            
-            with col_del_exp:
-                if st.button(f"🗑️ Delete Position", key=f"edit_del_exp_{i}"):
-                    st.session_state.edit_experience_list.pop(i)
-                    st.rerun()
-    
-    if st.button("➕ Add Work Experience", key="edit_add_experience_btn"):
-        st.session_state.edit_experience_list.append({
-            'position': '', 
-            'company': '', 
-            'years': '', 
-            'responsibilities': ['']
-        })
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Enhanced Experience Section
+    show_enhanced_experience_section("edit")
     
     # Achievements Section
     st.markdown('<div class="form-section">', unsafe_allow_html=True)
@@ -606,6 +554,191 @@ def show_candidate_edit_form():
             else:
                 st.error("❌ Please fill in at least Name and Email fields.")
 
+def show_enhanced_experience_section(prefix=""):
+    """Display enhanced work experience section with bullet points"""
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 💼 Work Experience")
+    
+    # Determine which experience list to use
+    if prefix == "edit":
+        experience_list = st.session_state.edit_experience_list
+    else:
+        experience_list = st.session_state.experience_list
+    
+    # Display experience in expandable sections
+    for i, exp in enumerate(experience_list):
+        position_title = exp.get('position', 'New Position')
+        company_name = exp.get('company', '')
+        display_title = f"Position {i+1}: {position_title}"
+        if company_name:
+            display_title += f" at {company_name}"
+            
+        with st.expander(display_title):
+            # Basic information in columns
+            col_exp1, col_exp2 = st.columns(2)
+            with col_exp1:
+                exp['position'] = st.text_input(
+                    "Job Title", 
+                    value=exp.get('position', ''),
+                    key=f"{prefix}pos_{i}"
+                )
+                exp['company'] = st.text_input(
+                    "Company", 
+                    value=exp.get('company', ''),
+                    key=f"{prefix}comp_{i}"
+                )
+                exp['years'] = st.text_input(
+                    "Duration", 
+                    value=exp.get('years', ''),
+                    key=f"{prefix}duration_{i}"
+                )
+                
+            with col_exp2:
+                exp['location'] = st.text_input(
+                    "Location", 
+                    value=exp.get('location', ''),
+                    key=f"{prefix}location_{i}"
+                )
+                exp['employment_type'] = st.selectbox(
+                    "Employment Type",
+                    options=['', 'Full-time', 'Part-time', 'Contract', 'Internship', 'Freelance', 'Consultant'],
+                    index=0 if not exp.get('employment_type') else 
+                          ['', 'Full-time', 'Part-time', 'Contract', 'Internship', 'Freelance', 'Consultant'].index(exp.get('employment_type')) 
+                          if exp.get('employment_type') in ['', 'Full-time', 'Part-time', 'Contract', 'Internship', 'Freelance', 'Consultant'] else 0,
+                    key=f"{prefix}emp_type_{i}"
+                )
+                
+                # Additional details in a single row
+                col_team, col_reporting = st.columns(2)
+                with col_team:
+                    exp['team_size'] = st.text_input(
+                        "Team Size", 
+                        value=exp.get('team_size', ''),
+                        key=f"{prefix}team_size_{i}"
+                    )
+                with col_reporting:
+                    exp['reporting_to'] = st.text_input(
+                        "Reporting To", 
+                        value=exp.get('reporting_to', ''),
+                        key=f"{prefix}reporting_{i}"
+                    )
+            
+            # Responsibilities Section
+            st.markdown("**📋 Key Responsibilities:**")
+            responsibilities = exp.get('responsibilities', [])
+            
+            if not responsibilities:
+                exp['responsibilities'] = ['']
+                responsibilities = exp['responsibilities']
+            
+            # Display responsibilities with bullet point styling
+            for j, resp in enumerate(responsibilities):
+                col_resp1, col_resp2 = st.columns([5, 1])
+                with col_resp1:
+                    responsibilities[j] = st.text_area(
+                        f"Responsibility {j+1}", 
+                        value=resp,
+                        height=70,
+                        key=f"{prefix}resp_{i}_{j}",
+                        help="Enter a specific responsibility or duty"
+                    )
+                with col_resp2:
+                    st.write("")  # Spacing
+                    if st.button("🗑️", key=f"{prefix}del_resp_{i}_{j}", help="Delete responsibility"):
+                        responsibilities.pop(j)
+                        st.rerun()
+            
+            col_add_resp = st.columns(1)[0]
+            with col_add_resp:
+                if st.button(f"➕ Add Responsibility", key=f"{prefix}add_resp_{i}"):
+                    responsibilities.append('')
+                    st.rerun()
+            
+            # Achievements Section
+            st.markdown("**🏆 Key Achievements:**")
+            achievements = exp.get('achievements', [])
+            
+            if not achievements:
+                exp['achievements'] = []
+                achievements = exp['achievements']
+            
+            for j, achievement in enumerate(achievements):
+                col_ach1, col_ach2 = st.columns([5, 1])
+                with col_ach1:
+                    achievements[j] = st.text_area(
+                        f"Achievement {j+1}", 
+                        value=achievement,
+                        height=70,
+                        key=f"{prefix}ach_{i}_{j}",
+                        help="Enter a specific achievement, award, or measurable result"
+                    )
+                with col_ach2:
+                    st.write("")  # Spacing
+                    if st.button("🗑️", key=f"{prefix}del_ach_{i}_{j}", help="Delete achievement"):
+                        achievements.pop(j)
+                        st.rerun()
+            
+            col_add_ach = st.columns(1)[0]
+            with col_add_ach:
+                if st.button(f"➕ Add Achievement", key=f"{prefix}add_ach_{i}"):
+                    achievements.append('')
+                    st.rerun()
+            
+            # Technologies Section
+            st.markdown("**💻 Technologies & Tools:**")
+            technologies = exp.get('technologies', [])
+            
+            if not technologies:
+                exp['technologies'] = []
+                technologies = exp['technologies']
+            
+            for j, tech in enumerate(technologies):
+                col_tech1, col_tech2 = st.columns([5, 1])
+                with col_tech1:
+                    technologies[j] = st.text_input(
+                        f"Technology {j+1}", 
+                        value=tech,
+                        key=f"{prefix}tech_{i}_{j}",
+                        help="Enter a technology, tool, or software used"
+                    )
+                with col_tech2:
+                    if st.button("🗑️", key=f"{prefix}del_tech_{i}_{j}", help="Delete technology"):
+                        technologies.pop(j)
+                        st.rerun()
+            
+            col_add_tech = st.columns(1)[0]
+            with col_add_tech:
+                if st.button(f"➕ Add Technology", key=f"{prefix}add_tech_{i}"):
+                    technologies.append('')
+                    st.rerun()
+            
+            # Delete position button
+            st.markdown("---")
+            col_del_exp = st.columns(1)[0]
+            with col_del_exp:
+                if st.button(f"🗑️ Delete Position", key=f"{prefix}del_exp_{i}", type="secondary"):
+                    experience_list.pop(i)
+                    st.rerun()
+    
+    # Add new experience button
+    if st.button("➕ Add Work Experience", key=f"{prefix}add_experience_btn"):
+        new_experience = {
+            'position': '', 
+            'company': '', 
+            'years': '', 
+            'location': '',
+            'employment_type': '',
+            'team_size': '',
+            'reporting_to': '',
+            'responsibilities': [''],
+            'achievements': [],
+            'technologies': []
+        }
+        experience_list.append(new_experience)
+        st.rerun()
+        
+    st.markdown('</div>', unsafe_allow_html=True)
+
 def handle_candidate_update():
     """Handle candidate update"""
     try:
@@ -617,8 +750,14 @@ def handle_candidate_update():
         for exp in st.session_state.edit_experience_list:
             if exp.get('position') or exp.get('company'):
                 clean_resp = [r for r in exp.get('responsibilities', []) if r.strip()]
-                exp['responsibilities'] = clean_resp
-                clean_experience.append(exp)
+                clean_ach = [a for a in exp.get('achievements', []) if a.strip()]
+                clean_tech = [t for t in exp.get('technologies', []) if t.strip()]
+                
+                cleaned_exp = exp.copy()
+                cleaned_exp['responsibilities'] = clean_resp
+                cleaned_exp['achievements'] = clean_ach
+                cleaned_exp['technologies'] = clean_tech
+                clean_experience.append(cleaned_exp)
         
         clean_achievements = [a for a in st.session_state.edit_achievements_list if a.strip()]
         
@@ -683,7 +822,25 @@ def initialize_edit_form_data(candidate):
     # Initialize lists - make copies to avoid reference issues
     st.session_state.edit_qualifications_list = [qual.copy() for qual in candidate.get('qualifications', [])]
     st.session_state.edit_skills_list = [skill.copy() for skill in candidate.get('skills', [])]
-    st.session_state.edit_experience_list = [exp.copy() for exp in candidate.get('experience', [])]
+    
+    # Initialize enhanced experience list with all fields
+    edit_experience_list = []
+    for exp in candidate.get('experience', []):
+        enhanced_exp = {
+            'position': exp.get('position', ''),
+            'company': exp.get('company', ''),
+            'years': exp.get('years', ''),
+            'location': exp.get('location', ''),
+            'employment_type': exp.get('employment_type', ''),
+            'team_size': exp.get('team_size', ''),
+            'reporting_to': exp.get('reporting_to', ''),
+            'responsibilities': exp.get('responsibilities', []).copy(),
+            'achievements': exp.get('achievements', []).copy(),
+            'technologies': exp.get('technologies', []).copy()
+        }
+        edit_experience_list.append(enhanced_exp)
+    
+    st.session_state.edit_experience_list = edit_experience_list
     st.session_state.edit_achievements_list = candidate.get('achievements', []).copy()
 
 def view_candidate_details(candidate):
@@ -804,16 +961,33 @@ def initialize_manual_entry_form():
     st.session_state.form_special_skills = ""
 
 def initialize_form_data(data):
-    """Initialize form data from extracted CV data"""
+    """Initialize form data from extracted CV data with enhanced experience structure"""
     # Initialize dynamic lists first
     if 'qualifications_list' not in st.session_state:
         st.session_state.qualifications_list = data.get('qualifications', [])
     if 'skills_list' not in st.session_state:
         st.session_state.skills_list = data.get('skills', [])
-    if 'experience_list' not in st.session_state:
-        st.session_state.experience_list = data.get('experience', [])
     if 'achievements_list' not in st.session_state:
         st.session_state.achievements_list = data.get('achievements', [])
+    
+    # Initialize enhanced experience list
+    if 'experience_list' not in st.session_state:
+        experience_list = []
+        for exp in data.get('experience', []):
+            enhanced_exp = {
+                'position': exp.get('position', ''),
+                'company': exp.get('company', ''),
+                'years': exp.get('years', ''),
+                'location': exp.get('location', ''),
+                'employment_type': exp.get('employment_type', ''),
+                'team_size': exp.get('team_size', ''),
+                'reporting_to': exp.get('reporting_to', ''),
+                'responsibilities': exp.get('responsibilities', []),
+                'achievements': exp.get('achievements', []),
+                'technologies': exp.get('technologies', [])
+            }
+            experience_list.append(enhanced_exp)
+        st.session_state.experience_list = experience_list
     
     # Initialize form fields
     st.session_state.form_name = data.get('name', '')
@@ -972,74 +1146,8 @@ def show_candidate_form():
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Experience Section
-    st.markdown('<div class="form-section">', unsafe_allow_html=True)
-    st.markdown("### 💼 Work Experience")
-    
-    # Display experience in expandable sections
-    for i, exp in enumerate(st.session_state.experience_list):
-        with st.expander(f"Position {i+1}: {exp.get('position', 'New Position')}"):
-            col_exp1, col_exp2 = st.columns(2)
-            with col_exp1:
-                exp['position'] = st.text_input(
-                    "Job Title", 
-                    value=exp.get('position', ''),
-                    key=f"pos_{i}"
-                )
-                exp['company'] = st.text_input(
-                    "Company", 
-                    value=exp.get('company', ''),
-                    key=f"comp_{i}"
-                )
-            with col_exp2:
-                exp['years'] = st.text_input(
-                    "Duration", 
-                    value=exp.get('years', ''),
-                    key=f"duration_{i}"
-                )
-            
-            # Responsibilities
-            st.markdown("**Key Responsibilities:**")
-            responsibilities = exp.get('responsibilities', [])
-            
-            # Initialize responsibilities if not exists
-            if not responsibilities:
-                exp['responsibilities'] = ['']
-                responsibilities = exp['responsibilities']
-            
-            for j, resp in enumerate(responsibilities):
-                col_resp1, col_resp2 = st.columns([5, 1])
-                with col_resp1:
-                    responsibilities[j] = st.text_input(
-                        f"Responsibility {j+1}", 
-                        value=resp,
-                        key=f"resp_{i}_{j}"
-                    )
-                with col_resp2:
-                    if st.button("🗑️", key=f"del_resp_{i}_{j}", help="Delete responsibility"):
-                        responsibilities.pop(j)
-                        st.rerun()
-            
-            col_add_resp, col_del_exp = st.columns(2)
-            with col_add_resp:
-                if st.button(f"➕ Add Responsibility", key=f"add_resp_{i}"):
-                    responsibilities.append('')
-                    st.rerun()
-            
-            with col_del_exp:
-                if st.button(f"🗑️ Delete Position", key=f"del_exp_{i}"):
-                    st.session_state.experience_list.pop(i)
-                    st.rerun()
-    
-    if st.button("➕ Add Work Experience", key="add_experience_btn"):
-        st.session_state.experience_list.append({
-            'position': '', 
-            'company': '', 
-            'years': '', 
-            'responsibilities': ['']
-        })
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Enhanced Experience Section
+    show_enhanced_experience_section()
     
     # Achievements Section
     st.markdown('<div class="form-section">', unsafe_allow_html=True)
@@ -1100,10 +1208,16 @@ def handle_candidate_save():
         
         for exp in st.session_state.experience_list:
             if exp.get('position') or exp.get('company'):
-                # Clean up empty responsibilities
+                # Clean up empty arrays
                 clean_resp = [r for r in exp.get('responsibilities', []) if r.strip()]
-                exp['responsibilities'] = clean_resp
-                clean_experience.append(exp)
+                clean_ach = [a for a in exp.get('achievements', []) if a.strip()]
+                clean_tech = [t for t in exp.get('technologies', []) if t.strip()]
+                
+                cleaned_exp = exp.copy()
+                cleaned_exp['responsibilities'] = clean_resp
+                cleaned_exp['achievements'] = clean_ach
+                cleaned_exp['technologies'] = clean_tech
+                clean_experience.append(cleaned_exp)
         
         clean_achievements = [a for a in st.session_state.achievements_list if a.strip()]
         

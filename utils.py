@@ -5,7 +5,7 @@ from datetime import datetime
 
 def validate_candidate_data(candidate_data: Dict[str, Any]) -> tuple[bool, List[str]]:
     """
-    Validate candidate data before database insertion
+    Validate candidate data before database insertion with enhanced experience validation
     Returns (is_valid, error_messages)
     """
     errors = []
@@ -26,10 +26,34 @@ def validate_candidate_data(candidate_data: Dict[str, Any]) -> tuple[bool, List[
     if phone and not is_valid_phone(phone):
         errors.append("Invalid phone number format")
     
-    # Experience validation
+    # Enhanced Experience validation
     experience = candidate_data.get('experience', [])
     if not isinstance(experience, list):
         errors.append("Experience must be a list")
+    else:
+        for i, exp in enumerate(experience):
+            if not isinstance(exp, dict):
+                errors.append(f"Experience {i+1} must be an object")
+                continue
+            
+            # Validate basic experience fields
+            if not exp.get('position') and not exp.get('company'):
+                errors.append(f"Experience {i+1} must have either position or company")
+            
+            # Validate responsibilities
+            responsibilities = exp.get('responsibilities', [])
+            if not isinstance(responsibilities, list):
+                errors.append(f"Experience {i+1} responsibilities must be a list")
+            
+            # Validate achievements
+            achievements = exp.get('achievements', [])
+            if not isinstance(achievements, list):
+                errors.append(f"Experience {i+1} achievements must be a list")
+            
+            # Validate technologies
+            technologies = exp.get('technologies', [])
+            if not isinstance(technologies, list):
+                errors.append(f"Experience {i+1} technologies must be a list")
     
     # Skills validation
     skills = candidate_data.get('skills', [])
@@ -41,6 +65,18 @@ def validate_candidate_data(candidate_data: Dict[str, Any]) -> tuple[bool, List[
                 errors.append(f"Skill {i+1} must be an object with 'skill' and 'proficiency' fields")
             elif not skill.get('skill'):
                 errors.append(f"Skill {i+1} is missing skill name")
+            elif skill.get('proficiency') and not isinstance(skill.get('proficiency'), int):
+                errors.append(f"Skill {i+1} proficiency must be an integer between 1-5")
+    
+    # Qualifications validation
+    qualifications = candidate_data.get('qualifications', [])
+    if not isinstance(qualifications, list):
+        errors.append("Qualifications must be a list")
+    
+    # Achievements validation
+    achievements = candidate_data.get('achievements', [])
+    if not isinstance(achievements, list):
+        errors.append("Achievements must be a list")
     
     return len(errors) == 0, errors
 
@@ -59,7 +95,7 @@ def is_valid_phone(phone: str) -> bool:
     return re.match(pattern, cleaned_phone) is not None
 
 def format_search_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Format search results for display"""
+    """Format search results for display with enhanced experience summary"""
     formatted_results = []
     
     for result in results:
@@ -77,6 +113,10 @@ def format_search_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]
             'created_at': format_datetime(result.get('created_at')),
         }
         
+        # Enhanced experience summary
+        experience_summary = get_experience_summary(result.get('experience', []))
+        formatted_result.update(experience_summary)
+        
         # Add match score if available
         if 'match_score' in result:
             formatted_result['match_score'] = result['match_score']
@@ -84,6 +124,61 @@ def format_search_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         formatted_results.append(formatted_result)
     
     return formatted_results
+
+def get_experience_summary(experience_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Get enhanced summary of candidate's experience"""
+    if not experience_list:
+        return {
+            'total_positions': 0,
+            'companies': [],
+            'technologies': [],
+            'employment_types': []
+        }
+    
+    try:
+        companies = []
+        technologies = []
+        employment_types = []
+        total_responsibilities = 0
+        total_achievements = 0
+        
+        for exp in experience_list:
+            if exp.get('company'):
+                companies.append(exp['company'])
+            
+            if exp.get('employment_type'):
+                employment_types.append(exp['employment_type'])
+            
+            # Collect technologies
+            exp_technologies = exp.get('technologies', [])
+            technologies.extend(exp_technologies)
+            
+            # Count responsibilities and achievements
+            total_responsibilities += len(exp.get('responsibilities', []))
+            total_achievements += len(exp.get('achievements', []))
+        
+        # Remove duplicates
+        unique_companies = list(set([comp for comp in companies if comp]))
+        unique_technologies = list(set([tech for tech in technologies if tech]))
+        unique_employment_types = list(set([emp_type for emp_type in employment_types if emp_type]))
+        
+        return {
+            'total_positions': len(experience_list),
+            'companies': unique_companies,
+            'technologies': unique_technologies,
+            'employment_types': unique_employment_types,
+            'total_responsibilities': total_responsibilities,
+            'total_achievements': total_achievements
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting experience summary: {str(e)}")
+        return {
+            'total_positions': len(experience_list),
+            'companies': [],
+            'technologies': [],
+            'employment_types': []
+        }
 
 def format_phone_display(phone: str) -> str:
     """Format phone number for display"""
@@ -114,7 +209,7 @@ def format_datetime(dt_str: Optional[str]) -> str:
         return dt_str
 
 def calculate_experience_years(experience: List[Dict[str, Any]]) -> float:
-    """Calculate total years of experience from experience list"""
+    """Calculate total years of experience from enhanced experience list"""
     total_years = 0.0
     
     for exp in experience:
@@ -140,6 +235,17 @@ def extract_skills_list(skills: List[Dict[str, Any]]) -> List[str]:
     """Extract skill names from skills data"""
     return [skill.get('skill', '') for skill in skills if skill.get('skill')]
 
+def extract_technologies_from_experience(experience: List[Dict[str, Any]]) -> List[str]:
+    """Extract all technologies from experience list"""
+    all_technologies = []
+    
+    for exp in experience:
+        technologies = exp.get('technologies', [])
+        all_technologies.extend(technologies)
+    
+    # Remove duplicates and empty values
+    return list(set([tech for tech in all_technologies if tech]))
+
 def get_highest_skill_proficiency(skills: List[Dict[str, Any]]) -> int:
     """Get the highest skill proficiency level"""
     max_proficiency = 0
@@ -153,6 +259,66 @@ def get_highest_skill_proficiency(skills: List[Dict[str, Any]]) -> int:
             continue
     
     return max_proficiency
+
+def format_experience_bullet_points(experience: List[Dict[str, Any]]) -> str:
+    """Format experience data into readable bullet points"""
+    if not experience:
+        return "No experience data available"
+    
+    formatted_text = ""
+    
+    for i, exp in enumerate(experience, 1):
+        position = exp.get('position', 'N/A')
+        company = exp.get('company', 'N/A')
+        duration = exp.get('years', 'N/A')
+        location = exp.get('location', '')
+        employment_type = exp.get('employment_type', '')
+        
+        # Header for each position
+        formatted_text += f"\n{i}. **{position}** at **{company}**\n"
+        formatted_text += f"   Duration: {duration}"
+        
+        if location:
+            formatted_text += f" | Location: {location}"
+        if employment_type:
+            formatted_text += f" | Type: {employment_type}"
+        
+        formatted_text += "\n"
+        
+        # Responsibilities
+        responsibilities = exp.get('responsibilities', [])
+        if responsibilities:
+            formatted_text += "   **Key Responsibilities:**\n"
+            for resp in responsibilities:
+                if resp.strip():
+                    formatted_text += f"   • {resp}\n"
+        
+        # Achievements
+        achievements = exp.get('achievements', [])
+        if achievements:
+            formatted_text += "   **Achievements:**\n"
+            for ach in achievements:
+                if ach.strip():
+                    formatted_text += f"   ★ {ach}\n"
+        
+        # Technologies
+        technologies = exp.get('technologies', [])
+        if technologies:
+            formatted_text += f"   **Technologies Used:** {', '.join(technologies)}\n"
+        
+        # Additional details
+        additional_details = []
+        if exp.get('team_size'):
+            additional_details.append(f"Team Size: {exp['team_size']}")
+        if exp.get('reporting_to'):
+            additional_details.append(f"Reported to: {exp['reporting_to']}")
+        
+        if additional_details:
+            formatted_text += f"   **Additional Details:** {' | '.join(additional_details)}\n"
+        
+        formatted_text += "\n"
+    
+    return formatted_text
 
 def format_salary(salary_str: str) -> str:
     """Format salary string for display"""
@@ -243,6 +409,60 @@ def highlight_search_terms(text: str, search_terms: List[str]) -> str:
     
     return highlighted_text
 
+def validate_enhanced_experience(experience: Dict[str, Any]) -> tuple[bool, List[str]]:
+    """Validate enhanced experience entry"""
+    errors = []
+    
+    # Basic validation
+    if not experience.get('position') and not experience.get('company'):
+        errors.append("Experience must have either position or company")
+    
+    # Validate lists
+    list_fields = ['responsibilities', 'achievements', 'technologies']
+    for field in list_fields:
+        field_value = experience.get(field, [])
+        if not isinstance(field_value, list):
+            errors.append(f"{field.replace('_', ' ').title()} must be a list")
+    
+    # Validate employment type if provided
+    valid_employment_types = ['Full-time', 'Part-time', 'Contract', 'Internship', 'Freelance', 'Consultant']
+    employment_type = experience.get('employment_type', '')
+    if employment_type and employment_type not in valid_employment_types:
+        errors.append(f"Employment type must be one of: {', '.join(valid_employment_types)}")
+    
+    return len(errors) == 0, errors
+
+def extract_keywords_from_experience(experience_list: List[Dict[str, Any]]) -> List[str]:
+    """Extract keywords from experience for search indexing"""
+    keywords = []
+    
+    for exp in experience_list:
+        # Add position and company
+        if exp.get('position'):
+            keywords.append(exp['position'])
+        if exp.get('company'):
+            keywords.append(exp['company'])
+        
+        # Add technologies
+        technologies = exp.get('technologies', [])
+        keywords.extend(technologies)
+        
+        # Extract key words from responsibilities and achievements
+        responsibilities = exp.get('responsibilities', [])
+        achievements = exp.get('achievements', [])
+        
+        all_text = ' '.join(responsibilities + achievements)
+        
+        # Extract meaningful words (more than 3 characters)
+        words = re.findall(r'\b\w{4,}\b', all_text.lower())
+        keywords.extend(words)
+    
+    # Remove duplicates and common words
+    common_words = {'with', 'using', 'this', 'that', 'have', 'been', 'were', 'will', 'from', 'they', 'would', 'could', 'should'}
+    unique_keywords = list(set([kw for kw in keywords if kw.lower() not in common_words]))
+    
+    return unique_keywords
+
 def setup_logging():
     """Setup logging configuration"""
     from config import Config
@@ -289,3 +509,18 @@ def get_file_info(file_content: bytes, filename: str) -> Dict[str, Any]:
         'extension': filename.lower().split('.')[-1] if '.' in filename else '',
         'is_pdf': file_content.startswith(b'%PDF')
     }
+
+def format_experience_for_display(experience: Dict[str, Any]) -> str:
+    """Format a single experience entry for clean display"""
+    position = experience.get('position', 'N/A')
+    company = experience.get('company', 'N/A')
+    duration = experience.get('years', 'N/A')
+    
+    display_text = f"{position} at {company} ({duration})"
+    
+    # Add location if available
+    location = experience.get('location', '')
+    if location:
+        display_text += f" - {location}"
+    
+    return display_text
