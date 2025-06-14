@@ -10,8 +10,7 @@ env:
   AZURE_WEBAPP_NAME: 'ktsapp'    # Replace with your app name from Step 1.1
   REGISTRY_NAME: 'ktsacr'            # Replace with your ACR name from Step 1.1
   IMAGE_NAME: 'hr-candidate-app'
-name: Deploy HR Candidate Tool to Azure
-
+  
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
