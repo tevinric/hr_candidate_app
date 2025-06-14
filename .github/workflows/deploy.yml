@@ -81,8 +81,7 @@ jobs:
         push: true
         tags: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }},${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
         platforms: linux/amd64
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        # Removed cache configuration to fix buildx issue
 
     - name: Log in to Azure
       uses: azure/login@v1
