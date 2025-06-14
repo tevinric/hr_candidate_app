@@ -10,7 +10,7 @@ env:
   AZURE_WEBAPP_NAME: 'ktsapp'    # Replace with your app name from Step 1.1
   REGISTRY_NAME: 'ktsacr'            # Replace with your ACR name from Step 1.1
   IMAGE_NAME: 'hr-candidate-app'
-  
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -58,8 +58,8 @@ jobs:
           ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
           ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
         platforms: linux/amd64
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        # cache-from: type=gha
+        # cache-to: type=gha,mode=max
 
     - name: Log in to Azure
       uses: azure/login@v1

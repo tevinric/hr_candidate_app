@@ -73,7 +73,7 @@ class CVProcessor:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert HR assistant that extracts structured information from CV/resume text. Always respond with valid JSON format."
+                        "content": "You are an expert HR assistant that extracts structured information from CV/resume text. Always respond with valid JSON format. Pay special attention to extracting ALL work experience entries, not just the most recent one."
                     },
                     {
                         "role": "user",
@@ -81,7 +81,7 @@ class CVProcessor:
                     }
                 ],
                 temperature=0.1,
-                max_tokens=2000
+                max_tokens=3000  # Increased token limit for comprehensive extraction
             )
             
             # Parse the response
@@ -110,9 +110,12 @@ class CVProcessor:
             return None
     
     def _create_extraction_prompt(self, cv_text: str) -> str:
-        """Create prompt for CV data extraction"""
+        """Create enhanced prompt for comprehensive CV data extraction"""
         return f"""
-        Extract the following information from this CV/resume text and return it as a JSON object:
+        Extract the following information from this CV/resume text and return it as a JSON object.
+        
+        IMPORTANT: Extract ALL work experience entries from the CV, not just the most recent one. 
+        Look through the entire CV text to capture the complete employment history.
 
         Required fields:
         - name: Full name of the candidate
@@ -127,11 +130,17 @@ class CVProcessor:
         - special_skills: Any special skills or certifications
 
         Array fields (return as arrays of objects):
-        - experience: Array of work experience objects with fields:
-          - position: Job title
-          - company: Company name
-          - years: Duration or years in role
-          - responsibilities: Array of key responsibilities/achievements
+        - experience: Array of ALL work experience objects with fields:
+          - position: Job title/role name
+          - company: Company/organization name
+          - years: Duration or years in role (e.g., "2020-2023", "3 years", "Jan 2020 - Present")
+          - location: Work location (city, country) if mentioned
+          - employment_type: Type of employment (Full-time, Part-time, Contract, Internship, etc.) if mentioned
+          - responsibilities: Array of DETAILED and COMPREHENSIVE responsibilities, duties, and day-to-day tasks. EXTRACT AS MUCH DETAIL AS POSSIBLE from the CV for each responsibility. Include specific processes, methodologies, tools used, scope of work, and detailed descriptions of what they actually did in their role.
+          - achievements: Array of specific achievements, accomplishments, and measurable results in this role
+          - technologies: Array of technologies, tools, or software used in this role
+          - team_size: Team size managed or worked with (if mentioned)
+          - reporting_to: Who they reported to (if mentioned)
         
         - skills: Array of skill objects with fields:
           - skill: Skill name
@@ -143,14 +152,37 @@ class CVProcessor:
           - year: Year of completion
           - grade: Grade/GPA if mentioned
         
-        - achievements: Array of achievement strings
+        - achievements: Array of general achievement strings (awards, recognitions, publications, etc.)
 
-        Instructions:
-        1. If information is not available, use empty string or empty array
-        2. For skills proficiency, make educated guesses based on context (years of experience, project complexity, etc.)
-        3. Extract all relevant experience, even part-time or freelance work
-        4. Include all educational qualifications, certifications, and courses
-        5. Return valid JSON only, no additional text
+        Extraction Guidelines:
+        1. EXTRACT ALL WORK EXPERIENCE: Don't stop at the first job - scan the entire CV for all employment history
+        2. For each work experience, capture as much detail as possible from the CV
+        3. RESPONSIBILITIES - EXTRACT COMPREHENSIVE DETAILS: For responsibilities, don't just list generic duties. Extract detailed descriptions including:
+           - Specific processes and methodologies used
+           - Detailed scope of work and responsibilities
+           - Exact tools, systems, and technologies used for each task
+           - Quantified aspects (e.g., "managed database of 10,000+ records", "processed 50+ applications daily")
+           - Specific workflows and procedures followed
+           - Cross-functional collaboration details
+           - Problem-solving approaches used
+           - Quality standards maintained
+           - Documentation and reporting responsibilities
+           - Training and mentoring activities
+           - Project management aspects
+           - Customer/stakeholder interaction details
+        4. Break down job descriptions into specific, detailed responsibilities (what they did day-to-day with full context)
+        5. Separate achievements from responsibilities (measurable results, awards, improvements, etc.)
+        6. If technologies/tools are mentioned for a specific role, include them
+        7. If team size or reporting structure is mentioned, capture it
+        8. Look for keywords like "Previous Experience", "Employment History", "Career", "Professional Experience"
+        9. Include internships, part-time jobs, freelance work, and contract positions
+        10. For skills proficiency, make educated guesses based on:
+           - Years of experience with the skill
+           - Level of responsibility using the skill
+           - Complexity of projects mentioned
+           - Certifications or advanced usage indicators
+        11. If information is not available, use empty string or empty array
+        12. PRIORITIZE DETAIL EXTRACTION: Always prefer detailed, specific descriptions over generic ones
 
         CV Text:
         {cv_text}
@@ -257,7 +289,7 @@ class CVProcessor:
         return cleaned_data
     
     def _validate_experience(self, experience: List[Any]) -> List[Dict[str, Any]]:
-        """Validate and clean experience data"""
+        """Validate and clean enhanced experience data"""
         validated_exp = []
         
         for exp in experience:
@@ -266,13 +298,29 @@ class CVProcessor:
                     'position': str(exp.get('position', '')).strip(),
                     'company': str(exp.get('company', '')).strip(),
                     'years': str(exp.get('years', '')).strip(),
-                    'responsibilities': []
+                    'location': str(exp.get('location', '')).strip(),
+                    'employment_type': str(exp.get('employment_type', '')).strip(),
+                    'team_size': str(exp.get('team_size', '')).strip(),
+                    'reporting_to': str(exp.get('reporting_to', '')).strip(),
+                    'responsibilities': [],
+                    'achievements': [],
+                    'technologies': []
                 }
                 
                 # Clean responsibilities
                 responsibilities = exp.get('responsibilities', [])
                 if isinstance(responsibilities, list):
                     clean_exp['responsibilities'] = [str(r).strip() for r in responsibilities if str(r).strip()]
+                
+                # Clean achievements
+                achievements = exp.get('achievements', [])
+                if isinstance(achievements, list):
+                    clean_exp['achievements'] = [str(a).strip() for a in achievements if str(a).strip()]
+                
+                # Clean technologies
+                technologies = exp.get('technologies', [])
+                if isinstance(technologies, list):
+                    clean_exp['technologies'] = [str(t).strip() for t in technologies if str(t).strip()]
                 
                 if clean_exp['position'] or clean_exp['company']:
                     validated_exp.append(clean_exp)
