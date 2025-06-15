@@ -468,33 +468,47 @@ def show_main_card():
     
     if auth_url:
         # Show the main login card
-        st.markdown(f"""
-        <div class="main-card">
-            <div class="header-section">
-                <div class="logo">
-                    <div class="logo-icon">🎯</div>
+            
+            # Load and encode the logo image
+            import base64
+            import os
+            from pathlib import Path
+            
+            # Get the path to the logo image
+            logo_path = Path(os.path.join("static", "kts-logo.png"))
+            
+            # Check if the logo exists, otherwise fallback to text
+            if logo_path.exists():
+                with open(logo_path, "rb") as img_file:
+                    encoded_image = base64.b64encode(img_file.read()).decode()
+                logo_html = f'<img src="data:image/png;base64,{encoded_image}" alt="Key Talent Solutions Logo" style="width:70px; height:70px; border-radius:50%; object-fit:cover; display:block; margin:0 auto 1.5rem auto;">'
+            else:
+                logo_html = '<div class="logo-icon">KTS</div>'
+                
+            st.markdown(f"""
+            <div class="main-card">
+                <div class="header-section">
+                <div class="logo" style="background: none; box-shadow: none;">
+                    {logo_html}
                 </div>
                 <h1 class="main-title">Key Talent Solutions</h1>
-                <p class="subtitle">AI-Powered HR Candidate Management</p>
-            </div>
+                </div>
             <div class="content-section">
-                <div class="welcome-text">
-                    <h3 class="welcome-title">Welcome Back</h3>
-                    <p class="welcome-description">Sign in with your organization account to access the HR Candidate Management System and continue managing your talent pipeline.</p>
-                </div>
-                <div class="login-button-container">
-                    <a href="{auth_url}" class="login-button" target="_self">
-                        <span class="ms-icon">⊞</span>
-                        <span class="button-text">Sign in with Microsoft</span>
-                    </a>
-                </div>
+            <div class="welcome-text">
                 <div class="security-badge">
-                    <span class="security-icon">🔒</span>
-                    Secured by Microsoft Entra ID
+                <span class="security-icon">🔒</span>
+                Secured by Microsoft Entra ID
                 </div>
+            </div>
+            <div class="login-button-container">
+                <a href="{auth_url}" class="login-button" target="_self">
+                <span class="ms-icon">⊞</span>
+                <span class="button-text">Sign in with Microsoft</span>
+                </a>
+            </div>
             </div>
             <div class="footer">
-                © 2024 Key Talent Solutions - Secure Enterprise HR Management
+            © 2025 Key Talent Solutions
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -598,7 +612,6 @@ def handle_auth_callback(auth_code: str):
                     <div class="logo">
                         <div class="logo-icon">✅</div>
                     </div>
-                    <h1 class="main-title">Welcome Back!</h1>
                     <p class="subtitle">Authentication Successful</p>
                 </div>
                 <div class="content-section">
