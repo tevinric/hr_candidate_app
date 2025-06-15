@@ -34,6 +34,7 @@ def manual_search():
     **Enhanced Search Features:**
     - **Smart Role Matching**: "Data Scientist" will find "Data Science Manager", "Senior Data Scientist", etc.
     - **Flexible Skills Search**: Enter multiple skills separated by commas - finds candidates with ANY of the specified skills
+    - **Responsibilities Search**: Search through actual job duties and responsibilities from candidate experience
     - **Fuzzy Matching**: Finds similar terms and variations automatically
     """)
     
@@ -52,7 +53,7 @@ def manual_search():
             role_search = st.text_input(
                 "Current Role (smart matching)", 
                 value=cached.get('current_role', ''),
-                help="e.g., 'Data Scientist' will also find 'Data Science Manager', 'Senior Data Scientist'"
+                help="e.g., 'Data Scientist' will also find 'Data Science Manager', 'Senior Data Scientist', and related experience roles/responsibilities"
             )
             industry_search = st.text_input(
                 "Industry (contains)", 
@@ -67,6 +68,12 @@ def manual_search():
             )
             
         with col2:
+            responsibilities_search = st.text_area(
+                "Job Responsibilities (keywords)", 
+                value=cached.get('responsibilities', ''),
+                height=80,
+                help="Search through candidate job responsibilities and duties. Enter keywords or phrases that should appear in their work experience."
+            )
             qualification_search = st.text_input(
                 "Qualifications (contains)", 
                 value=cached.get('qualifications', ''),
@@ -93,6 +100,7 @@ def manual_search():
             'current_role': role_search,
             'industry': industry_search,
             'skills': skills_search,
+            'responsibilities': responsibilities_search,
             'qualifications': qualification_search,
             'experience_years': experience_years,
             'notice_period': notice_period_search
@@ -125,6 +133,27 @@ def manual_search():
                     skills_list = [s.strip() for s in skills_search.split(',') if s.strip()]
                     if len(skills_list) > 1:
                         st.info(f"📋 Searched for candidates with ANY of these skills: {', '.join(skills_list)}")
+                
+                # Show some debug info to help user understand results
+                with st.expander("🔍 Search Debug Info", expanded=False):
+                    st.write("**Search criteria applied:**")
+                    active_criteria = {k: v for k, v in search_criteria.items() if v}
+                    for key, value in active_criteria.items():
+                        st.write(f"• {key.replace('_', ' ').title()}: {value}")
+                    
+                    if results:
+                        top_candidate = results[0]
+                        st.write(f"**Top match: {top_candidate.get('name', 'Unknown')} ({top_candidate.get('relevance_score', 0)}% match)**")
+                        
+                        if search_criteria.get('skills'):
+                            candidate_skills = [skill.get('skill', '') for skill in top_candidate.get('skills', [])]
+                            st.write(f"• Their skills: {', '.join(candidate_skills[:5])}")
+                        
+                        if search_criteria.get('responsibilities'):
+                            sample_resp = []
+                            for exp in top_candidate.get('experience', []):
+                                sample_resp.extend(exp.get('responsibilities', [])[:1])
+                            st.write(f"• Sample responsibilities: {' | '.join(sample_resp[:3])}")
             else:
                 st.warning("⚠️ No candidates found. Try broader search terms or check spelling.")
                 # Provide search suggestions
@@ -166,6 +195,7 @@ def job_description_search():
     - Paste any job description and our AI will extract requirements automatically
     - Finds candidates with similar skills and experience, not just exact matches
     - Scores candidates based on overall fit, including skill variations and related experience
+    - Analyzes job responsibilities and matches with candidate experience
     """)
     
     job_description = st.text_area(
@@ -192,7 +222,7 @@ Example: We are looking for a Senior Data Scientist with experience in Python, m
                 "Minimum Match Threshold (%)",
                 min_value=0,
                 max_value=100,
-                value=20,
+                value=5,  # MUCH LOWER DEFAULT
                 help="Minimum percentage match to include candidates in results"
             )
         
@@ -243,6 +273,11 @@ Example: We are looking for a Senior Data Scientist with experience in Python, m
                             if requirements.get('industry'):
                                 st.markdown(f"**Industry:** {requirements.get('industry')}")
                             
+                            if requirements.get('key_responsibilities'):
+                                st.markdown("**Key Responsibilities:**")
+                                for resp in requirements.get('key_responsibilities', [])[:5]:  # Show top 5
+                                    st.markdown(f"• {resp}")
+                            
                             if requirements.get('technologies'):
                                 st.markdown("**Technologies:**")
                                 for tech in requirements.get('technologies', [])[:8]:  # Show top 8
@@ -259,11 +294,26 @@ Example: We are looking for a Senior Data Scientist with experience in Python, m
                             results = st.session_state.db_manager.search_candidates_by_job_requirements(requirements)
                             ranked_results = rank_candidates_by_enhanced_job_match(results, requirements)
                             
-                            # Apply minimum threshold filter
+                            # ENSURE WE ALWAYS RETURN RESULTS - Apply minimum threshold filter but with fallback
                             filtered_results = [
                                 candidate for candidate in ranked_results 
                                 if candidate.get('match_score', 0) >= min_match_threshold
                             ]
+                            
+                            # FALLBACK: If no results meet threshold, return top 10 anyway
+                            if not filtered_results and ranked_results:
+                                st.warning(f"No candidates met the {min_match_threshold}% threshold. Showing top candidates anyway.")
+                                filtered_results = ranked_results[:10]  # Return top 10 regardless of score
+                            
+                            # SECONDARY FALLBACK: If still no results, return ALL candidates with basic scoring
+                            if not filtered_results:
+                                st.warning("No candidates found with job description matching. Showing all candidates with basic scoring.")
+                                all_candidates = st.session_state.db_manager.search_candidates({})  # Get all candidates
+                                # Give them all a basic score
+                                for candidate in all_candidates:
+                                    candidate['match_score'] = 25  # Basic score
+                                    candidate['relevance_score'] = 25
+                                filtered_results = all_candidates[:20]  # Return top 20
                             
                             # Cache results
                             st.session_state.cached_search_results = filtered_results
@@ -290,9 +340,29 @@ Example: We are looking for a Senior Data Scientist with experience in Python, m
                                 with col3:
                                     st.metric("🔴 Lower Match (<60%)", low_match)
                                 
+                                # Debug info for responsibilities matching
+                                if requirements.get('key_responsibilities'):
+                                    with st.expander("🔍 Debug: Responsibilities Matching", expanded=False):
+                                        st.write("**Job Requirements:**")
+                                        for resp in requirements.get('key_responsibilities', []):
+                                            st.write(f"• {resp}")
+                                        
+                                        st.write("**Sample candidate responsibilities (first result):**")
+                                        if filtered_results:
+                                            sample_candidate = filtered_results[0]
+                                            sample_resp = []
+                                            for exp in sample_candidate.get('experience', []):
+                                                sample_resp.extend(exp.get('responsibilities', [])[:2])  # Show first 2 from each job
+                                            for resp in sample_resp[:5]:  # Show max 5 total
+                                                st.write(f"• {resp}")
+                                
                             else:
                                 st.warning(f"⚠️ No candidates found meeting the {min_match_threshold}% threshold.")
                                 st.info("💡 Try lowering the minimum match threshold or using broader job requirements.")
+                                
+                                # Debug: Show what was extracted
+                                with st.expander("🔍 Debug: What was extracted from job description", expanded=True):
+                                    st.json(requirements)
                             
                             st.rerun()
                     else:
@@ -306,7 +376,7 @@ Example: We are looking for a Senior Data Scientist with experience in Python, m
     st.markdown('</div>', unsafe_allow_html=True)
 
 def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
-    """Enhanced relevance calculation for manual search with better matching"""
+    """Enhanced relevance calculation for manual search with responsibilities included"""
     score = 0
     total_criteria = 0
     
@@ -323,26 +393,44 @@ def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
             if name_match:
                 score += 1
         
-        # Enhanced role matching
+        # Enhanced role matching - including responsibilities - MUCH MORE AGGRESSIVE
         if search_criteria.get('current_role'):
             total_criteria += 1
             role_query = search_criteria['current_role'].lower()
             candidate_role = candidate.get('current_role', '').lower()
             
-            # Check current role and experience roles
             role_match = False
             
-            # Check current role with variations
-            if (role_query in candidate_role or candidate_role in role_query or
-                any(word in candidate_role for word in role_query.split() if len(word) > 3)):
-                role_match = True
+            # Check current role with very flexible matching
+            role_words = role_query.split()
+            for word in role_words:
+                if len(word) > 2 and word in candidate_role:
+                    role_match = True
+                    break
             
-            # Check experience positions
+            # Check experience positions - MORE FLEXIBLE
             if not role_match:
                 for exp in candidate.get('experience', []):
                     exp_position = exp.get('position', '').lower()
-                    if (role_query in exp_position or exp_position in role_query or
-                        any(word in exp_position for word in role_query.split() if len(word) > 3)):
+                    for word in role_words:
+                        if len(word) > 2 and word in exp_position:
+                            role_match = True
+                            break
+                    if role_match:
+                        break
+            
+            # Check responsibilities text - MUCH MORE AGGRESSIVE
+            if not role_match:
+                all_responsibilities = ""
+                for exp in candidate.get('experience', []):
+                    responsibilities = exp.get('responsibilities', [])
+                    all_responsibilities += " " + " ".join(responsibilities)
+                
+                all_responsibilities = all_responsibilities.lower()
+                
+                # Check if ANY role words appear in responsibilities
+                for word in role_words:
+                    if len(word) > 2 and word in all_responsibilities:
                         role_match = True
                         break
             
@@ -359,7 +447,7 @@ def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
                 any(word in candidate_industry for word in industry_query.split() if len(word) > 3)):
                 score += 1
         
-        # Enhanced skills matching - ANY of the specified skills
+        # Enhanced skills matching - ANY of the specified skills (including responsibilities)
         if search_criteria.get('skills'):
             total_criteria += 1
             skills_input = search_criteria['skills']
@@ -376,6 +464,13 @@ def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
                 for exp in candidate.get('experience', []):
                     experience_technologies.extend([tech.lower() for tech in exp.get('technologies', [])])
                 
+                # NEW: Get skills from responsibilities text
+                responsibilities_text = ""
+                for exp in candidate.get('experience', []):
+                    responsibilities = exp.get('responsibilities', [])
+                    responsibilities_text += " " + " ".join(responsibilities)
+                responsibilities_text = responsibilities_text.lower()
+                
                 # Get skills from special skills
                 special_skills = candidate.get('special_skills', '').lower()
                 special_skills_list = [s.strip() for s in special_skills.replace(',', ' ').split() if len(s.strip()) > 2]
@@ -387,19 +482,52 @@ def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
                 matched_skills_count = 0
                 
                 for query_skill in query_skills:
+                    skill_found = False
+                    
+                    # Check in formal skills and technologies
                     for candidate_skill in all_candidate_skills:
                         if (query_skill in candidate_skill or candidate_skill in query_skill or
                             any(word in candidate_skill for word in query_skill.split() if len(word) > 2)):
-                            skills_match = True
-                            matched_skills_count += 1
+                            skill_found = True
                             break
-                    if skills_match:
-                        break
+                    
+                    # NEW: Also check in responsibilities text
+                    if not skill_found:
+                        if query_skill in responsibilities_text or any(word in responsibilities_text for word in query_skill.split() if len(word) > 3):
+                            skill_found = True
+                    
+                    if skill_found:
+                        skills_match = True
+                        matched_skills_count += 1
                 
                 if skills_match:
                     # Bonus for matching multiple skills
                     skill_bonus = min(1.0, matched_skills_count / len(query_skills))
                     score += skill_bonus
+        
+        # Responsibilities matching - MUCH MORE AGGRESSIVE
+        if search_criteria.get('responsibilities'):
+            total_criteria += 1
+            responsibilities_query = search_criteria['responsibilities'].lower()
+            
+            # Get all candidate responsibilities text
+            all_responsibilities_text = ""
+            for exp in candidate.get('experience', []):
+                responsibilities = exp.get('responsibilities', [])
+                all_responsibilities_text += " " + " ".join(responsibilities)
+            
+            all_responsibilities_text = all_responsibilities_text.lower()
+            
+            # VERY FLEXIBLE keyword matching
+            query_keywords = [word.strip() for word in responsibilities_query.replace(',', ' ').split() if len(word.strip()) > 1]  # Reduced from 2 to 1
+            
+            if query_keywords:
+                matched_keywords = sum(1 for keyword in query_keywords if keyword in all_responsibilities_text)
+                
+                # Much lower threshold - need at least 1 keyword to match OR 10% of keywords
+                if matched_keywords >= max(1, len(query_keywords) * 0.1):  # Only 10% needed!
+                    keyword_score = matched_keywords / len(query_keywords)
+                    score += keyword_score
         
         # Qualifications matching
         if search_criteria.get('qualifications'):
@@ -465,16 +593,20 @@ def calculate_enhanced_match_score(candidate, requirements):
     max_score = 0
     
     try:
-        # 1. Required Skills Matching (30% weight)
+        # 1. Required Skills Matching (20% weight - reduced further to make room for responsibilities)
         required_skills = requirements.get('required_skills', [])
         if required_skills:
-            max_score += 30
+            max_score += 20
             candidate_skills = [skill.get('skill', '').lower() for skill in candidate.get('skills', [])]
             
-            # Also collect skills from experience technologies and special skills
+            # Also collect skills from experience technologies, special skills, AND responsibilities
             candidate_technologies = []
+            all_responsibilities_text = ""
             for exp in candidate.get('experience', []):
                 candidate_technologies.extend([tech.lower() for tech in exp.get('technologies', [])])
+                all_responsibilities_text += " " + " ".join(exp.get('responsibilities', []))
+            
+            all_responsibilities_text = all_responsibilities_text.lower()
             
             special_skills = candidate.get('special_skills', '').lower()
             special_skills_list = [s.strip() for s in special_skills.replace(',', ' ').split() if len(s.strip()) > 2]
@@ -486,20 +618,28 @@ def calculate_enhanced_match_score(candidate, requirements):
                 skill_lower = req_skill.lower()
                 skill_found = False
                 
+                # Check in formal skills and technologies - MORE FLEXIBLE
                 for candidate_skill in all_candidate_skills:
-                    # Flexible matching: exact match, contains, or word overlap
                     if (skill_lower in candidate_skill or candidate_skill in skill_lower or
-                        any(word in candidate_skill for word in skill_lower.split() if len(word) > 2) or
-                        any(word in skill_lower for word in candidate_skill.split() if len(word) > 2)):
+                        any(word in candidate_skill for word in skill_lower.split() if len(word) > 1) or  # Reduced from 2 to 1
+                        any(word in skill_lower for word in candidate_skill.split() if len(word) > 1)):
                         skill_found = True
                         break
+                
+                # ALSO check in responsibilities text for skills
+                if not skill_found:
+                    skill_words = skill_lower.split()
+                    for word in skill_words:
+                        if len(word) > 1 and word in all_responsibilities_text:  # Very flexible
+                            skill_found = True
+                            break
                 
                 if skill_found:
                     matched_skills += 1
             
             # Calculate skills score with flexibility
             if required_skills:
-                skills_score = (matched_skills / min(len(required_skills), 10)) * 30
+                skills_score = (matched_skills / min(len(required_skills), 10)) * 20
                 # Apply strict matching penalty if enabled
                 if requirements.get('strict_skills_matching') and matched_skills < len(required_skills) * 0.7:
                     skills_score *= 0.6
@@ -551,10 +691,10 @@ def calculate_enhanced_match_score(candidate, requirements):
                 if min_experience > 0:
                     score += (candidate_exp_years / min_experience) * 7.5
         
-        # 4. Experience Area Matching (15% weight)
+        # 4. Experience Area Matching (10% weight - reduced further)
         required_experience_areas = requirements.get('required_experience_areas', [])
         if required_experience_areas:
-            max_score += 15
+            max_score += 10
             candidate_experience_text = ""
             candidate_roles = []
             
@@ -577,7 +717,7 @@ def calculate_enhanced_match_score(candidate, requirements):
                     matched_areas += 1
             
             if required_experience_areas:
-                score += (matched_areas / len(required_experience_areas)) * 15
+                score += (matched_areas / len(required_experience_areas)) * 10
         
         # 5. Qualification Matching (8% weight)
         required_qualifications = requirements.get('required_qualifications', [])
@@ -646,10 +786,10 @@ def calculate_enhanced_match_score(candidate, requirements):
                 elif 'senior' in required_seniority_lower and candidate_exp_count >= 4:
                     score += 2
         
-        # 8. Key Responsibilities Matching (4% weight)
+        # 8. Key Responsibilities Matching (15% weight - increased even more)
         key_responsibilities = requirements.get('key_responsibilities', [])
         if key_responsibilities:
-            max_score += 4
+            max_score += 15
             candidate_responsibilities_text = ""
             
             for exp in candidate.get('experience', []):
@@ -660,15 +800,26 @@ def calculate_enhanced_match_score(candidate, requirements):
             matched_responsibilities = 0
             for responsibility in key_responsibilities:
                 resp_lower = responsibility.lower()
-                # Look for keywords from the responsibility
-                resp_keywords = [word for word in resp_lower.split() if len(word) > 3]
-                keyword_matches = sum(1 for keyword in resp_keywords if keyword in candidate_responsibilities_text)
                 
-                if keyword_matches >= max(1, len(resp_keywords) // 3):  # At least 1/3 of keywords match
+                # MUCH MORE FLEXIBLE matching - check if ANY words from responsibility appear
+                resp_words = resp_lower.split()
+                word_matches = sum(1 for word in resp_words if len(word) > 1 and word in candidate_responsibilities_text)  # Reduced from 2 to 1
+                
+                # VERY lenient threshold - only need 10% of words to match
+                if word_matches >= max(1, len(resp_words) * 0.1):
                     matched_responsibilities += 1
+                    
+                # Also check for any phrase matches (comma separated)
+                elif any(phrase.strip() in candidate_responsibilities_text for phrase in resp_lower.split(',') if len(phrase.strip()) > 3):
+                    matched_responsibilities += 0.5  # Partial credit for phrase matches
+                
+                # SUPER FLEXIBLE: Check if responsibility contains ANY common work words that appear in candidate text
+                common_work_words = ['manage', 'develop', 'create', 'implement', 'analyze', 'design', 'support', 'lead', 'coordinate', 'maintain']
+                if any(word in resp_lower and word in candidate_responsibilities_text for word in common_work_words):
+                    matched_responsibilities += 0.3  # Small credit for common work activities
             
             if key_responsibilities:
-                score += (matched_responsibilities / len(key_responsibilities)) * 4
+                score += (matched_responsibilities / len(key_responsibilities)) * 15
         
         # Ensure max_score is reasonable
         if max_score == 0:

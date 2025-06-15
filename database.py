@@ -194,23 +194,51 @@ class DatabaseManager:
             logging.error(f"Error deleting candidate: {str(e)}")
             return False, f"Error deleting candidate: {str(e)}"
 
+    def _match_skills(self, candidate_skills: List[Dict[str, Any]], search_skills: str) -> bool:
+        """
+        Check if any of the candidate's skills match any of the search skills (case-insensitive)
+        """
+        if not search_skills or not search_skills.strip():
+            return True  # No skills filter means match all
+        
+        # Parse comma-separated skills from search input
+        query_skills = [skill.strip().lower() for skill in search_skills.split(',') if skill.strip()]
+        
+        if not query_skills:
+            return True
+        
+        # Get candidate skill names (case-insensitive)
+        candidate_skill_names = [skill.get('skill', '').lower() for skill in candidate_skills if skill.get('skill')]
+        
+        # Check for ANY skill match (OR logic)
+        for query_skill in query_skills:
+            for candidate_skill in candidate_skill_names:
+                # Flexible matching: exact match, contains, or word overlap
+                if (query_skill in candidate_skill or 
+                    candidate_skill in query_skill or
+                    any(word in candidate_skill for word in query_skill.split() if len(word) > 2)):
+                    return True
+        
+        return False
+
     def search_candidates(self, search_criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Search candidates based on criteria"""
+        """Search candidates based on criteria with enhanced skills search"""
         try:
             conn = self.blob_db.get_connection()
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Build dynamic query
+            # Build dynamic query (excluding skills which will be handled separately)
             where_clauses = []
             params = []
             
             for field, value in search_criteria.items():
                 if value and value != "":
-                    if field == 'experience_years':
-                        continue  # Handle separately
+                    if field in ['experience_years', 'skills']:
+                        continue  # Handle these separately
                     else:
-                        where_clauses.append(f"{field} LIKE ?")
+                        # Make other searches case-insensitive too
+                        where_clauses.append(f"LOWER({field}) LIKE LOWER(?)")
                         params.append(f"%{value}%")
             
             query = "SELECT * FROM candidates"
@@ -221,6 +249,8 @@ class DatabaseManager:
             rows = cursor.fetchall()
             
             candidates = []
+            skills_search = search_criteria.get('skills', '')
+            
             for row in rows:
                 candidate = dict(row)
                 
@@ -234,6 +264,10 @@ class DatabaseManager:
                 if search_criteria.get('experience_years', 0) > 0:
                     if len(candidate['experience']) < search_criteria['experience_years']:
                         continue
+                
+                # Enhanced skills filtering with case-insensitive comma-separated search
+                if not self._match_skills(candidate['skills'], skills_search):
+                    continue
                 
                 candidates.append(candidate)
             
