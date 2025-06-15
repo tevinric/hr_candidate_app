@@ -108,9 +108,9 @@ jobs:
           AZURE_OPENAI_API_KEY="${{ secrets.AZURE_OPENAI_API_KEY }}" \
           AZURE_OPENAI_API_VERSION="${{ secrets.AZURE_OPENAI_API_VERSION }}" \
           AZURE_OPENAI_DEPLOYMENT_NAME="${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}" \
-          AZURE_AD_CLIENT_ID="${{ secrets.CLIENT_ID }}" \
-          AZURE_AD_CLIENT_SECRET="${{ secrets.CLIENT_SECRET }}" \
-          AZURE_AD_TENANT_ID="${{ secrets.TENANT_ID }}" \
+          AZURE_AD_CLIENT_ID="${{ secrets.AZURE_AD_CLIENT_ID }}" \
+          AZURE_AD_CLIENT_SECRET="${{ secrets.AZURE_AD_CLIENT_SECRET }}" \
+          AZURE_AD_TENANT_ID="${{ secrets.AZURE_AD_TENANT_ID }}" \
           AZURE_AD_REDIRECT_URI="${{ secrets.AZURE_AD_REDIRECT_URI }}" \
           AZURE_AD_AUTHORIZED_GROUP_ID="${{ secrets.AZURE_AD_AUTHORIZED_GROUP_ID }}" \
           BACKUP_CONTAINER="hr-backups" \
