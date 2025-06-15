@@ -9,6 +9,7 @@ import os
 from database import DatabaseManager
 from cv_processor import CVProcessor
 from utils import validate_candidate_data, format_search_results
+from pathlib import Path
 
 # Configure Streamlit page
 st.set_page_config(
@@ -30,7 +31,7 @@ st.markdown("""
     /* Header styling */
     .main-header {
         background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
-        padding: 2rem;
+        padding: 1rem;
         border-radius: 10px;
         margin-bottom: 2rem;
         color: white;
@@ -294,12 +295,12 @@ def show_main_application():
     """Show the main application for authenticated users - NEW FUNCTION"""
     from landing_page import show_user_profile
     from session_management import force_database_refresh
-    
+
     # Professional header
-    st.markdown("""
+    st.markdown(f"""
     <div class="main-header">
-        <h1>🎯 HR Candidate Management Tool</h1>
-        <p>AI-Powered CV Processing and Intelligent Candidate Matching</p>
+        <h1>Key Talent Solutions</h1>
+        <p>Candidate Management System</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -345,7 +346,7 @@ def main_application_page():
     """Main application page with navigation"""
     # Sidebar navigation
     st.sidebar.markdown("""
-    <div style="text-align: center; padding: 1rem; color: white;">
+    <div style="text-align: left; padding: 1rem;">
         <h2>🚀 Navigation</h2>
     </div>
     """, unsafe_allow_html=True)
@@ -982,15 +983,17 @@ def upload_cv_tab():
     st.markdown('<div class="section-header"><h2>📄 Add New Candidate</h2></div>', unsafe_allow_html=True)
     
     # Entry method selection
-    st.markdown('<div class="entry-method">', unsafe_allow_html=True)
+    #st.markdown('<div class="entry-method">', unsafe_allow_html=True)
+    st.write(" ")
+    st.write(" ")
     entry_method = st.radio(
         "How would you like to add the candidate?",
         ["📄 Upload CV and Process", "✏️ Manual Entry"],
         key="entry_method",
         help="Choose between uploading a CV for AI processing or manually entering candidate details"
     )
-    st.markdown('</div>', unsafe_allow_html=True)
-    
+    st.write(" ")
+    st.write(" ")
     if entry_method == "📄 Upload CV and Process":
         cv_upload_section()
     else:
@@ -1000,8 +1003,9 @@ def cv_upload_section():
     """CV Upload and Processing Section"""
     # Professional upload container
     with st.container():
-        st.markdown('<div class="form-container">', unsafe_allow_html=True)
+        #st.markdown('<div class="form-container">', unsafe_allow_html=True)
         st.markdown("### 📄 Upload CV File")
+        st.write(" ")
         uploaded_file = st.file_uploader(
             "Choose a PDF CV file", 
             type="pdf",

@@ -170,25 +170,28 @@ def show_landing_page():
         }
         
         .login-button {
-            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
-            color: #ffffff;
-            padding: 1rem 2rem;
+            background-color: lightblue;
+            color: white;
             border: none;
-            border-radius: 12px;
-            font-size: 1rem;
-            font-weight: 600;
+            padding: 10px 20px;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            text-decoration: none;
+            transition: background-color 0.3s ease;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 20px rgba(26, 54, 93, 0.25);
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
             width: 100%;
             max-width: 300px;
             position: relative;
             overflow: hidden;
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+        
+        .login-button:hover {
+            background-color: darkblue;
+            color: white;
         }
         
         .login-button::before {
