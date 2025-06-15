@@ -605,6 +605,12 @@ def handle_auth_callback(auth_code: str):
             st.session_state.authenticated = True
             st.session_state.user_info = user_info
             
+            # CRITICAL: Force database refresh from cloud on login
+            st.session_state.user_session_initialized = False
+            st.session_state.db_initialized = False
+            if 'db_manager' in st.session_state:
+                del st.session_state['db_manager']
+            
             # Clear query parameters
             st.query_params.clear()
             
@@ -621,7 +627,7 @@ def handle_auth_callback(auth_code: str):
                     <div class="success-message">
                         <h3>🎉 Sign-in Successful</h3>
                         <p>Welcome, <strong>{user_info.get("name", "User")}</strong>!</p>
-                        <p>You have been successfully authenticated. Redirecting to the application...</p>
+                        <p>You have been successfully authenticated. Syncing with cloud database...</p>
                     </div>
                 </div>
                 <div class="footer">
@@ -630,7 +636,7 @@ def handle_auth_callback(auth_code: str):
             </div>
             """, unsafe_allow_html=True)
             
-            # Force rerun to load main app
+            # Force rerun to load main app with fresh database
             st.rerun()
             
         else:
@@ -691,8 +697,65 @@ def show_user_profile():
             
             st.markdown("---")
             
+            # Manual sync button for debugging
+            if st.button("🔄 Manual Sync to Cloud", use_container_width=True, help="Manually sync current data to cloud"):
+                if 'db_manager' in st.session_state and st.session_state.db_manager:
+                    with st.spinner("🔄 Syncing to cloud..."):
+                        try:
+                            success = st.session_state.db_manager.ensure_cloud_sync()
+                            if success:
+                                st.success("✅ Manual sync successful!")
+                            else:
+                                st.error("❌ Manual sync failed!")
+                        except Exception as e:
+                            st.error(f"❌ Sync error: {str(e)}")
+                else:
+                    st.error("❌ Database manager not available")
+            
             # Logout button
             if st.button("🚪 Sign Out", use_container_width=True):
+                # Initialize logout sync flag
+                if 'logout_sync_in_progress' not in st.session_state:
+                    st.session_state.logout_sync_in_progress = True
+                    st.rerun()
+            
+            # Handle logout sync process
+            if getattr(st.session_state, 'logout_sync_in_progress', False):
+                # Show sync progress
+                with st.spinner("🔄 Syncing data to cloud before logout..."):
+                    sync_success = False
+                    
+                    # CRITICAL: Sync to cloud before logout
+                    if 'db_manager' in st.session_state and st.session_state.db_manager:
+                        try:
+                            import logging
+                            logging.info("🔄 STARTING: Syncing database to cloud before logout")
+                            
+                            # Force sync with blocking operation
+                            sync_success = st.session_state.db_manager.ensure_cloud_sync()
+                            
+                            if sync_success:
+                                logging.info("✅ SUCCESS: Database synced to cloud before logout")
+                                st.success("✅ Data synced to cloud successfully!")
+                            else:
+                                logging.error("❌ FAILED: Database sync to cloud failed before logout")
+                                st.error("⚠️ Failed to sync to cloud, but proceeding with logout")
+                        except Exception as e:
+                            import logging
+                            logging.error(f"❌ ERROR: Failed to sync to cloud before logout: {str(e)}")
+                            st.error(f"⚠️ Sync error: {str(e)}, but proceeding with logout")
+                    
+                    # Small delay to show the success/error message
+                    import time
+                    time.sleep(2)
+                
+                # Now proceed with actual logout
+                st.info("🚪 Logging out...")
+                
+                # Clear the logout sync flag first
+                st.session_state.logout_sync_in_progress = False
+                
+                # Perform logout
                 auth_manager = st.session_state.auth_manager
                 auth_manager.logout()
                 
@@ -712,4 +775,5 @@ def show_user_profile():
                 if 'search_performed' in st.session_state:
                     st.session_state.search_performed = False
                 
+                # Final rerun to complete logout
                 st.rerun()

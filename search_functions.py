@@ -84,16 +84,6 @@ def manual_search():
                 help="Search by notice period requirements"
             )
             
-            # Advanced filters
-            st.markdown("**Advanced Filters:**")
-            min_skill_proficiency = st.selectbox(
-                "Minimum Skill Proficiency Level",
-                options=[0, 1, 2, 3, 4, 5],
-                index=0,
-                format_func=lambda x: "Any" if x == 0 else f"{x} - {'Beginner' if x==1 else 'Basic' if x==2 else 'Intermediate' if x==3 else 'Advanced' if x==4 else 'Expert'}",
-                help="Filter candidates by minimum skill proficiency level"
-            )
-            
         search_submitted = st.form_submit_button("🔍 Search", type="primary")
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -105,8 +95,7 @@ def manual_search():
             'skills': skills_search,
             'qualifications': qualification_search,
             'experience_years': experience_years,
-            'notice_period': notice_period_search,
-            'min_skill_proficiency': min_skill_proficiency
+            'notice_period': notice_period_search
         }
         
         # Cache search criteria
@@ -445,20 +434,6 @@ def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
                 score += 1
             elif candidate_exp_years >= required_years - 1:  # Allow 1 year flexibility
                 score += 0.7
-        
-        # Skill proficiency filter
-        if search_criteria.get('min_skill_proficiency', 0) > 0:
-            total_criteria += 1
-            min_proficiency = search_criteria['min_skill_proficiency']
-            candidate_skills = candidate.get('skills', [])
-            
-            has_high_proficiency = any(
-                skill.get('proficiency', 0) >= min_proficiency 
-                for skill in candidate_skills
-            )
-            
-            if has_high_proficiency:
-                score += 1
         
         # Calculate percentage
         if total_criteria > 0:

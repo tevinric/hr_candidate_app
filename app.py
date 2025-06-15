@@ -243,35 +243,13 @@ def initialize_session_state():
             st.session_state[field] = ""
 
 def initialize_database_with_retry():
-    """Initialize database with retry logic and error handling"""
-    if st.session_state.db_initialized and 'db_manager' in st.session_state:
-        return True
-    
-    max_retries = 3
-    retry_count = 0
-    
-    while retry_count < max_retries:
-        try:
-            st.session_state.db_manager = DatabaseManager()
-            st.session_state.db_initialized = True
-            st.session_state.db_error = None
-            return True
-        except Exception as e:
-            retry_count += 1
-            st.session_state.db_error = str(e)
-            if retry_count >= max_retries:
-                return False
-            else:
-                time.sleep(2)  # Wait before retry
-    
-    return False
-
-# Initialize session state
-initialize_session_state()
+    """Initialize database with retry logic and FORCE cloud refresh on login"""
+    from session_management import initialize_database_with_retry as session_init_db
+    return session_init_db()
 
 
 def main():
-    # Import authentication modules - NEW IMPORTS
+    # Import authentication modules
     from auth import init_auth_session_state, is_authenticated
     from landing_page import show_landing_page, show_user_profile
     from session_management import force_database_refresh
@@ -279,20 +257,20 @@ def main():
     # Initialize session state FIRST - CRITICAL
     initialize_session_state()
     
-    # Initialize authentication session state - NEW
+    # Initialize authentication session state
     init_auth_session_state()
     
-    # Check authentication status - NEW AUTHENTICATION CHECK
+    # Check authentication status
     if not is_authenticated():
         # Show landing page with authentication
         show_landing_page()
         return
     
-    # User is authenticated, show main application - NEW FUNCTION CALL
+    # User is authenticated, show main application
     show_main_application()
 
 def show_main_application():
-    """Show the main application for authenticated users - NEW FUNCTION"""
+    """Show the main application for authenticated users"""
     from landing_page import show_user_profile
     from session_management import force_database_refresh
 
@@ -304,10 +282,10 @@ def show_main_application():
     </div>
     """, unsafe_allow_html=True)
     
-    # Show user profile in sidebar - NEW FEATURE
+    # Show user profile in sidebar
     show_user_profile()
     
-    # Initialize database with error handling and force refresh for new sessions
+    # Initialize database with error handling and FORCE refresh for new sessions
     if not initialize_database_with_retry():
         st.error("❌ Failed to initialize database. Please check your Azure Storage configuration.")
         st.markdown(f"**Error Details:** {st.session_state.db_error}")
@@ -323,12 +301,12 @@ def show_main_application():
         if st.button("🔄 Retry Database Connection"):
             st.session_state.db_initialized = False
             if 'db_manager' in st.session_state:
-                del st.session_state.db_manager
+                del st.session_state['db_manager']
             st.rerun()
         
         st.stop()
     
-    # Show sync status in a subtle way - only if user session is not initialized
+    # Show cloud sync status ONLY if user session is not initialized
     if not getattr(st.session_state, 'user_session_initialized', True):
         with st.spinner("🔄 Syncing with cloud database..."):
             time.sleep(1)  # Brief pause to show the message
@@ -637,7 +615,7 @@ def show_delete_confirmation_dialog():
             st.rerun()
 
 def handle_candidate_delete():
-    """Handle candidate deletion"""
+    """Handle candidate deletion with FORCED cloud sync"""
     try:
         candidate = st.session_state.selected_candidate
         email = candidate.get('email')
@@ -646,7 +624,7 @@ def handle_candidate_delete():
             st.error("❌ Cannot delete candidate: Email not found")
             return
         
-        # Delete from database
+        # Delete from database with forced cloud sync
         result, message = st.session_state.db_manager.delete_candidate(email)
         
         if result:
@@ -867,7 +845,7 @@ def show_enhanced_experience_section(prefix=""):
     st.markdown('</div>', unsafe_allow_html=True)
 
 def handle_candidate_update():
-    """Handle candidate update"""
+    """Handle candidate update with FORCED cloud sync"""
     try:
         # Clean up empty entries
         clean_qualifications = [q for q in st.session_state.edit_qualifications_list if q.get('qualification')]
@@ -905,11 +883,11 @@ def handle_candidate_update():
             'special_skills': st.session_state.edit_special_skills
         }
         
-        # Update candidate in database
+        # Update candidate in database with forced cloud sync
         result, message = st.session_state.db_manager.update_candidate(candidate_data)
         
         if result:
-            st.success("✅ Candidate updated successfully!")
+            st.success("✅ Candidate updated successfully and synced to cloud!")
             
             # Update the selected candidate data
             st.session_state.selected_candidate.update(candidate_data)
@@ -926,7 +904,7 @@ def handle_candidate_update():
                     st.session_state.current_page = 'main'
                     st.rerun()
             with col2:
-                st.info("Changes have been saved to the database.")
+                st.info("Changes have been saved to the database and synced to cloud.")
         else:
             st.error(f"❌ Failed to update candidate: {message}")
             
