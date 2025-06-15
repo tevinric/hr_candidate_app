@@ -29,6 +29,13 @@ class Config:
     AZURE_OPENAI_API_VERSION: str = os.environ.get('AZURE_OPENAI_API_VERSION', '2024-02-15-preview')
     AZURE_OPENAI_DEPLOYMENT_NAME: str = os.environ.get('AZURE_OPENAI_DEPLOYMENT_NAME', 'gpt-4o-mini')
     
+    # Authentication Configuration - NEW SECTION
+    AZURE_AD_CLIENT_ID: Optional[str] = os.environ.get('AZURE_AD_CLIENT_ID')
+    AZURE_AD_CLIENT_SECRET: Optional[str] = os.environ.get('AZURE_AD_CLIENT_SECRET')
+    AZURE_AD_TENANT_ID: Optional[str] = os.environ.get('AZURE_AD_TENANT_ID')
+    AZURE_AD_REDIRECT_URI: str = os.environ.get('AZURE_AD_REDIRECT_URI', 'https://your-app-name.azurewebsites.net')
+    AZURE_AD_AUTHORIZED_GROUP_ID: Optional[str] = os.environ.get('AZURE_AD_AUTHORIZED_GROUP_ID')
+    
     # Application Configuration
     APP_NAME: str = "HR Candidate Management Tool"
     APP_VERSION: str = "1.1.0"  # Updated version for blob storage
@@ -57,16 +64,31 @@ class Config:
             ('AZURE_OPENAI_API_KEY', cls.AZURE_OPENAI_API_KEY),
         ]
         
+        # Authentication configs are optional but recommended - UPDATED VALIDATION
+        auth_configs = [
+            ('AZURE_AD_CLIENT_ID', cls.AZURE_AD_CLIENT_ID),
+            ('AZURE_AD_CLIENT_SECRET', cls.AZURE_AD_CLIENT_SECRET),
+            ('AZURE_AD_TENANT_ID', cls.AZURE_AD_TENANT_ID),
+        ]
+        
         missing_configs = []
         for name, value in required_configs:
             if not value:
                 missing_configs.append(name)
         
+        missing_auth_configs = []
+        for name, value in auth_configs:
+            if not value:
+                missing_auth_configs.append(name)
+        
         if missing_configs:
             print(f"Missing required configuration: {', '.join(missing_configs)}")
-            return False
+            
+        if missing_auth_configs:
+            print(f"Missing authentication configuration (authentication will be disabled): {', '.join(missing_auth_configs)}")
         
-        return True
+        # Only fail validation if core required configs are missing
+        return len(missing_configs) == 0
     
     @classmethod
     def get_summary(cls) -> dict:
@@ -87,5 +109,7 @@ class Config:
             'max_file_size_mb': cls.MAX_FILE_SIZE_MB,
             'max_search_results': cls.MAX_SEARCH_RESULTS,
             'azure_openai_configured': bool(cls.AZURE_OPENAI_ENDPOINT and cls.AZURE_OPENAI_API_KEY),
-            'blob_storage_configured': bool(cls.AZURE_STORAGE_CONNECTION_STRING)
+            'blob_storage_configured': bool(cls.AZURE_STORAGE_CONNECTION_STRING),
+            'authentication_configured': bool(cls.AZURE_AD_CLIENT_ID and cls.AZURE_AD_CLIENT_SECRET and cls.AZURE_AD_TENANT_ID),  # NEW
+            'azure_ad_redirect_uri': cls.AZURE_AD_REDIRECT_URI  # NEW
         }

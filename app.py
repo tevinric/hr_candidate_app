@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import time
+import logging
 from datetime import datetime
 import tempfile
 import os
@@ -102,6 +103,17 @@ st.markdown("""
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
     
+    /* Delete button styling */
+    div[data-testid="stButton"] > button[key="delete_candidate_btn"] {
+        background: linear-gradient(90deg, #dc2626 0%, #b91c1c 100%) !important;
+        color: white !important;
+        border: none !important;
+    }
+    
+    div[data-testid="stButton"] > button[key="delete_candidate_btn"]:hover {
+        background: linear-gradient(90deg, #b91c1c 0%, #991b1b 100%) !important;
+    }
+    
     /* Enhanced form section */
     .form-section {
         background: #f8fafc;
@@ -182,6 +194,8 @@ def initialize_session_state():
         st.session_state.db_error = None
     if 'manual_entry_mode' not in st.session_state:
         st.session_state.manual_entry_mode = False
+    if 'show_delete_confirmation' not in st.session_state:
+        st.session_state.show_delete_confirmation = False
     
     # PAGE NAVIGATION STATE
     if 'current_page' not in st.session_state:
@@ -254,7 +268,33 @@ def initialize_database_with_retry():
 # Initialize session state
 initialize_session_state()
 
+
 def main():
+    # Import authentication modules - NEW IMPORTS
+    from auth import init_auth_session_state, is_authenticated
+    from landing_page import show_landing_page, show_user_profile
+    from session_management import force_database_refresh
+    
+    # Initialize session state FIRST - CRITICAL
+    initialize_session_state()
+    
+    # Initialize authentication session state - NEW
+    init_auth_session_state()
+    
+    # Check authentication status - NEW AUTHENTICATION CHECK
+    if not is_authenticated():
+        # Show landing page with authentication
+        show_landing_page()
+        return
+    
+    # User is authenticated, show main application - NEW FUNCTION CALL
+    show_main_application()
+
+def show_main_application():
+    """Show the main application for authenticated users - NEW FUNCTION"""
+    from landing_page import show_user_profile
+    from session_management import force_database_refresh
+    
     # Professional header
     st.markdown("""
     <div class="main-header">
@@ -263,7 +303,10 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Initialize database with error handling
+    # Show user profile in sidebar - NEW FEATURE
+    show_user_profile()
+    
+    # Initialize database with error handling and force refresh for new sessions
     if not initialize_database_with_retry():
         st.error("❌ Failed to initialize database. Please check your Azure Storage configuration.")
         st.markdown(f"**Error Details:** {st.session_state.db_error}")
@@ -283,6 +326,14 @@ def main():
             st.rerun()
         
         st.stop()
+    
+    # Show sync status in a subtle way - only if user session is not initialized
+    if not getattr(st.session_state, 'user_session_initialized', True):
+        with st.spinner("🔄 Syncing with cloud database..."):
+            time.sleep(1)  # Brief pause to show the message
+        st.success("✅ Database synchronized with cloud")
+        time.sleep(1)  # Brief pause to show success
+        st.rerun()  # Refresh to clear the message
     
     # PAGE ROUTING - Check current page and display accordingly
     if st.session_state.current_page == 'candidate_details':
@@ -371,6 +422,11 @@ def show_candidate_edit_form():
     
     st.markdown('<div class="section-header"><h2>📝 Edit Candidate Information</h2></div>', unsafe_allow_html=True)
     st.markdown('<p style="color: #64748b; font-style: italic;">Edit candidate information and click Update to save changes to the database.</p>', unsafe_allow_html=True)
+    
+    # Handle delete confirmation dialog
+    if st.session_state.show_delete_confirmation:
+        show_delete_confirmation_dialog()
+        return
     
     # Personal Information Section
     st.markdown('<div class="form-section">', unsafe_allow_html=True)
@@ -542,9 +598,9 @@ def show_candidate_edit_form():
     )
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Update button
+    # Update and Delete buttons
     st.markdown("---")
-    col_submit1, col_submit2, col_submit3 = st.columns([2, 1, 2])
+    col_submit1, col_submit2, col_submit3, col_submit4 = st.columns([2, 1, 1, 1])
     with col_submit1:
         st.markdown("*Fields marked with * are required")
     with col_submit2:
@@ -553,6 +609,76 @@ def show_candidate_edit_form():
                 handle_candidate_update()
             else:
                 st.error("❌ Please fill in at least Name and Email fields.")
+    with col_submit3:
+        if st.button("🗑️ Delete Candidate", use_container_width=True, key="delete_candidate_btn", help="Permanently delete this candidate from the database"):
+            st.session_state.show_delete_confirmation = True
+            st.rerun()
+
+def show_delete_confirmation_dialog():
+    """Show delete confirmation dialog"""
+    candidate = st.session_state.selected_candidate
+    
+    st.markdown('<div class="error-message">', unsafe_allow_html=True)
+    st.markdown("### ⚠️ Confirm Delete")
+    st.markdown(f"Are you sure you want to **permanently delete** the candidate **{candidate.get('name', 'Unknown')}** ({candidate.get('email', 'N/A')})?")
+    st.markdown("**This action cannot be undone!**")
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col2:
+        if st.button("✅ Yes, Delete", type="primary", use_container_width=True, key="confirm_delete_btn"):
+            handle_candidate_delete()
+    
+    with col3:
+        if st.button("❌ Cancel", use_container_width=True, key="cancel_delete_btn"):
+            st.session_state.show_delete_confirmation = False
+            st.rerun()
+
+def handle_candidate_delete():
+    """Handle candidate deletion"""
+    try:
+        candidate = st.session_state.selected_candidate
+        email = candidate.get('email')
+        
+        if not email:
+            st.error("❌ Cannot delete candidate: Email not found")
+            return
+        
+        # Delete from database
+        result, message = st.session_state.db_manager.delete_candidate(email)
+        
+        if result:
+            st.success("✅ Candidate deleted successfully!")
+            
+            # Clear session state
+            st.session_state.selected_candidate = None
+            st.session_state.show_delete_confirmation = False
+            st.session_state.current_page = 'main'
+            
+            # Clear cached search results so they refresh
+            st.session_state.cached_search_results = []
+            st.session_state.search_performed = False
+            
+            # Navigate back to search page
+            st.session_state.main_nav = "🔍 Search Candidates"
+            
+            # Show success message and auto-redirect
+            st.markdown("### ✅ Deletion Complete!")
+            st.info("Returning to search page...")
+            
+            # Use a delay to show the success message before redirecting
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error(f"❌ Failed to delete candidate: {message}")
+            st.session_state.show_delete_confirmation = False
+            st.rerun()
+            
+    except Exception as e:
+        st.error(f"❌ Error deleting candidate: {str(e)}")
+        st.session_state.show_delete_confirmation = False
+        st.rerun()
 
 def show_enhanced_experience_section(prefix=""):
     """Display enhanced work experience section with bullet points"""
@@ -1544,68 +1670,258 @@ def rank_candidates_by_job_match(candidates, requirements):
     return sorted(ranked_candidates, key=lambda x: x.get('match_score', 0), reverse=True)
 
 def calculate_match_score(candidate, requirements):
-    """Calculate match score between candidate and job requirements"""
+    """Enhanced comprehensive match score calculation between candidate and job requirements"""
     score = 0
     max_score = 0
     
     try:
-        # Skills matching
-        if requirements.get('required_skills'):
-            max_score += 40
-            candidate_skills = [skill.get('skill', '') for skill in candidate.get('skills', [])]
-            required_skills = requirements.get('required_skills', [])
+        # 1. Required Skills Matching (25% weight)
+        required_skills = requirements.get('required_skills', [])
+        if required_skills:
+            max_score += 25
+            candidate_skills = [skill.get('skill', '').lower() for skill in candidate.get('skills', [])]
+            
+            # Also collect skills from experience technologies and special skills
+            candidate_technologies = []
+            for exp in candidate.get('experience', []):
+                candidate_technologies.extend([tech.lower() for tech in exp.get('technologies', [])])
+            
+            special_skills = candidate.get('special_skills', '').lower().split()
+            all_candidate_skills = set(candidate_skills + candidate_technologies + special_skills)
             
             matched_skills = 0
             for req_skill in required_skills:
-                for cand_skill in candidate_skills:
-                    if req_skill.lower() in cand_skill.lower():
-                        matched_skills += 1
-                        break
+                skill_lower = req_skill.lower()
+                if any(skill_lower in candidate_skill or candidate_skill in skill_lower for candidate_skill in all_candidate_skills):
+                    matched_skills += 1
             
             if required_skills:
-                score += (matched_skills / len(required_skills)) * 40
+                score += (matched_skills / len(required_skills)) * 25
         
-        # Experience matching
-        if requirements.get('min_experience_years'):
-            max_score += 30
-            candidate_exp_years = len(candidate.get('experience', []))
-            required_years = requirements.get('min_experience_years', 0)
-            
-            if candidate_exp_years >= required_years:
-                score += 30
-            else:
-                score += (candidate_exp_years / required_years) * 30
-        
-        # Qualification matching
-        if requirements.get('required_qualifications'):
+        # 2. Technology Matching (20% weight)
+        required_technologies = requirements.get('technologies', [])
+        if required_technologies:
             max_score += 20
-            candidate_quals = [qual.get('qualification', '') for qual in candidate.get('qualifications', [])]
-            required_quals = requirements.get('required_qualifications', [])
+            candidate_technologies = []
+            candidate_skills = [skill.get('skill', '').lower() for skill in candidate.get('skills', [])]
+            
+            # Collect technologies from experience
+            for exp in candidate.get('experience', []):
+                candidate_technologies.extend([tech.lower() for tech in exp.get('technologies', [])])
+            
+            all_candidate_tech = set(candidate_technologies + candidate_skills)
+            
+            matched_tech = 0
+            for req_tech in required_technologies:
+                tech_lower = req_tech.lower()
+                if any(tech_lower in candidate_tech or candidate_tech in tech_lower for candidate_tech in all_candidate_tech):
+                    matched_tech += 1
+            
+            if required_technologies:
+                score += (matched_tech / len(required_technologies)) * 20
+        
+        # 3. Experience Years Matching (15% weight)
+        min_experience = requirements.get('min_experience_years', 0)
+        preferred_experience = requirements.get('preferred_experience_years', 0)
+        if min_experience > 0 or preferred_experience > 0:
+            max_score += 15
+            candidate_exp_years = len(candidate.get('experience', []))
+            target_years = preferred_experience if preferred_experience > 0 else min_experience
+            
+            if candidate_exp_years >= target_years:
+                score += 15
+            elif candidate_exp_years >= min_experience:
+                # Partial score for meeting minimum but not preferred
+                score += (candidate_exp_years / target_years) * 15
+            else:
+                # Reduced score for not meeting minimum
+                score += (candidate_exp_years / min_experience) * 7.5 if min_experience > 0 else 0
+        
+        # 4. Experience Area Matching (15% weight)
+        required_experience_areas = requirements.get('required_experience_areas', [])
+        if required_experience_areas:
+            max_score += 15
+            candidate_experience_text = ""
+            candidate_roles = []
+            
+            for exp in candidate.get('experience', []):
+                candidate_experience_text += f" {exp.get('position', '')} {' '.join(exp.get('responsibilities', []))}"
+                candidate_roles.append(exp.get('position', '').lower())
+            
+            candidate_experience_text = candidate_experience_text.lower()
+            
+            matched_areas = 0
+            for area in required_experience_areas:
+                area_lower = area.lower()
+                # Check in experience text and role titles
+                if (area_lower in candidate_experience_text or 
+                    any(area_lower in role for role in candidate_roles)):
+                    matched_areas += 1
+            
+            if required_experience_areas:
+                score += (matched_areas / len(required_experience_areas)) * 15
+        
+        # 5. Qualification Matching (10% weight)
+        required_qualifications = requirements.get('required_qualifications', [])
+        if required_qualifications:
+            max_score += 10
+            candidate_quals = [qual.get('qualification', '').lower() for qual in candidate.get('qualifications', [])]
+            candidate_highest = candidate.get('highest_qualification', '').lower()
             
             matched_quals = 0
-            for req_qual in required_quals:
-                for cand_qual in candidate_quals:
-                    if req_qual.lower() in cand_qual.lower():
-                        matched_quals += 1
-                        break
+            for req_qual in required_qualifications:
+                qual_lower = req_qual.lower()
+                if (qual_lower in candidate_highest or
+                    any(qual_lower in cand_qual or cand_qual in qual_lower for cand_qual in candidate_quals)):
+                    matched_quals += 1
             
-            if required_quals:
-                score += (matched_quals / len(required_quals)) * 20
+            if required_qualifications:
+                score += (matched_quals / len(required_qualifications)) * 10
         
-        # Industry matching
-        if requirements.get('industry'):
-            max_score += 10
-            if candidate.get('industry', '').lower() == requirements.get('industry', '').lower():
+        # 6. Industry Matching (5% weight)
+        required_industry = requirements.get('industry', '')
+        if required_industry:
+            max_score += 5
+            candidate_industry = candidate.get('industry', '').lower()
+            required_industry_lower = required_industry.lower()
+            
+            if candidate_industry:
+                # Exact match
+                if candidate_industry == required_industry_lower:
+                    score += 5
+                # Partial match (contains keywords)
+                elif (required_industry_lower in candidate_industry or 
+                      candidate_industry in required_industry_lower):
+                    score += 3
+                # Keyword overlap
+                else:
+                    industry_keywords = required_industry_lower.split()
+                    matches = sum(1 for keyword in industry_keywords if keyword in candidate_industry)
+                    if matches > 0:
+                        score += (matches / len(industry_keywords)) * 2
+        
+        # 7. Seniority Level Matching (5% weight)
+        required_seniority = requirements.get('seniority_level', '')
+        if required_seniority:
+            max_score += 5
+            candidate_role = candidate.get('current_role', '').lower()
+            required_seniority_lower = required_seniority.lower()
+            candidate_exp_count = len(candidate.get('experience', []))
+            
+            # Check role title for seniority indicators
+            seniority_match = False
+            if required_seniority_lower in candidate_role:
+                seniority_match = True
+                score += 5
+            elif 'senior' in required_seniority_lower and ('lead' in candidate_role or 'principal' in candidate_role):
+                seniority_match = True
+                score += 4
+            elif 'lead' in required_seniority_lower and 'senior' in candidate_role and candidate_exp_count >= 4:
+                seniority_match = True
+                score += 3
+            
+            # If no direct match, check experience count alignment
+            if not seniority_match:
+                if 'entry' in required_seniority_lower and candidate_exp_count <= 2:
+                    score += 3
+                elif 'junior' in required_seniority_lower and candidate_exp_count <= 3:
+                    score += 3
+                elif 'mid' in required_seniority_lower and 2 <= candidate_exp_count <= 5:
+                    score += 3
+                elif 'senior' in required_seniority_lower and candidate_exp_count >= 4:
+                    score += 2
+        
+        # 8. Responsibilities Matching (5% weight)
+        key_responsibilities = requirements.get('key_responsibilities', [])
+        if key_responsibilities:
+            max_score += 5
+            candidate_responsibilities_text = ""
+            
+            for exp in candidate.get('experience', []):
+                candidate_responsibilities_text += " " + " ".join(exp.get('responsibilities', []))
+            
+            candidate_responsibilities_text = candidate_responsibilities_text.lower()
+            
+            matched_responsibilities = 0
+            for responsibility in key_responsibilities:
+                resp_lower = responsibility.lower()
+                # Look for keywords from the responsibility in candidate's experience
+                resp_keywords = resp_lower.split()
+                keyword_matches = sum(1 for keyword in resp_keywords if len(keyword) > 3 and keyword in candidate_responsibilities_text)
+                if keyword_matches >= len(resp_keywords) // 2:  # At least half the keywords match
+                    matched_responsibilities += 1
+            
+            if key_responsibilities:
+                score += (matched_responsibilities / len(key_responsibilities)) * 5
+        
+        # 9. Leadership/Management Experience (bonus weight if required)
+        if requirements.get('team_leadership', False):
+            max_score += 3
+            candidate_experience_text = ""
+            
+            for exp in candidate.get('experience', []):
+                candidate_experience_text += f" {exp.get('position', '')} {' '.join(exp.get('responsibilities', []))}"
+                if exp.get('team_size'):
+                    score += 3  # Has managed a team
+                    break
+            
+            # Look for leadership keywords in experience
+            leadership_keywords = ['manage', 'lead', 'supervise', 'mentor', 'team', 'direct', 'coordinate']
+            candidate_text_lower = candidate_experience_text.lower()
+            leadership_matches = sum(1 for keyword in leadership_keywords if keyword in candidate_text_lower)
+            
+            if leadership_matches >= 2:
+                score += min(3, leadership_matches)
+        
+        # 10. Special Requirements Bonus
+        special_requirements = requirements.get('special_requirements', [])
+        if special_requirements:
+            max_score += 2
+            candidate_special_skills = candidate.get('special_skills', '').lower()
+            candidate_achievements = [ach.lower() for ach in candidate.get('achievements', [])]
+            
+            matched_special = 0
+            for special_req in special_requirements:
+                special_lower = special_req.lower()
+                if (special_lower in candidate_special_skills or
+                    any(special_lower in ach for ach in candidate_achievements)):
+                    matched_special += 1
+            
+            if special_requirements:
+                score += (matched_special / len(special_requirements)) * 2
+        
+        # Ensure max_score is at least 100 for percentage calculation
+        if max_score == 0:
+            max_score = 100
+            # Basic fallback scoring if no specific requirements
+            if candidate.get('skills'):
+                score += 30
+            if candidate.get('experience'):
+                score += 40
+            if candidate.get('qualifications'):
+                score += 20
+            if candidate.get('industry'):
                 score += 10
         
-        # Calculate percentage
-        if max_score > 0:
-            return round((score / max_score) * 100, 1)
-        else:
-            return 0
+        # Calculate percentage and apply bonuses
+        final_score = (score / max_score) * 100
+        
+        # Bonus for preferred skills
+        preferred_skills = requirements.get('preferred_skills', [])
+        if preferred_skills:
+            candidate_skills = [skill.get('skill', '').lower() for skill in candidate.get('skills', [])]
+            preferred_matches = sum(1 for pref_skill in preferred_skills 
+                                 if any(pref_skill.lower() in cand_skill for cand_skill in candidate_skills))
+            if preferred_matches > 0:
+                final_score += min(5, (preferred_matches / len(preferred_skills)) * 5)  # Up to 5% bonus
+        
+        # Cap at 100%
+        final_score = min(100, final_score)
+        
+        return round(final_score, 1)
             
     except Exception as e:
-        st.error(f"Error calculating match score: {str(e)}")
+        logging.error(f"Error calculating match score: {str(e)}")
         return 0
 
 def display_search_results(results, show_match_score=None):
