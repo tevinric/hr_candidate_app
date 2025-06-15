@@ -33,7 +33,7 @@ class Config:
     AZURE_AD_CLIENT_ID: Optional[str] = os.environ.get('AZURE_AD_CLIENT_ID')
     AZURE_AD_CLIENT_SECRET: Optional[str] = os.environ.get('AZURE_AD_CLIENT_SECRET')
     AZURE_AD_TENANT_ID: Optional[str] = os.environ.get('AZURE_AD_TENANT_ID')
-    AZURE_AD_REDIRECT_URI: str = os.environ.get('AZURE_AD_REDIRECT_URI', 'https://your-app-name.azurewebsites.net')
+    AZURE_AD_REDIRECT_URI: str = os.environ.get('AZURE_AD_REDIRECT_URI')
     AZURE_AD_AUTHORIZED_GROUP_ID: Optional[str] = os.environ.get('AZURE_AD_AUTHORIZED_GROUP_ID')
     
     # Application Configuration

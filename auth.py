@@ -11,9 +11,9 @@ class AuthManager:
     
     def __init__(self):
         # Azure AD configuration
-        self.client_id = os.environ.get('CLIENT_ID', '')
-        self.client_secret = os.environ.get('CLIENT_SECRET', '')
-        self.tenant_id = os.environ.get('TENANT_ID', '')
+        self.client_id = os.environ.get('AZURE_AD_CLIENT_ID', '')
+        self.client_secret = os.environ.get('AZURE_AD_CLIENT_SECRET', '')
+        self.tenant_id = os.environ.get('AZURE_AD_TENANT_ID', '')
         self.authority = f"https://login.microsoftonline.com/{self.tenant_id}"
         self.authorized_group_id = os.environ.get('AZURE_AD_AUTHORIZED_GROUP_ID', '')
         
