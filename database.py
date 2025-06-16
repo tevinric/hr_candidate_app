@@ -25,7 +25,66 @@ class DatabaseManager:
                 self._ensure_backup_container_exists()
             except Exception as e:
                 logging.error(f"Failed to initialize backup blob storage: {str(e)}")
-    
+
+    def _match_responsibilities(self, experience_list: List[Dict[str, Any]], search_responsibilities: str) -> bool:
+        """
+        Check if any of the candidate's experience responsibilities match the search terms
+        """
+        if not search_responsibilities or not search_responsibilities.strip():
+            return True  # No responsibilities filter means match all
+        
+        # Get all responsibilities text from all experience entries
+        all_responsibilities_text = ""
+        for exp in experience_list:
+            responsibilities = exp.get('responsibilities', [])
+            if isinstance(responsibilities, list):
+                all_responsibilities_text += " " + " ".join(responsibilities)
+        
+        all_responsibilities_text = all_responsibilities_text.lower()
+        
+        # Parse search terms (comma-separated or space-separated)
+        search_terms = []
+        if ',' in search_responsibilities:
+            search_terms = [term.strip().lower() for term in search_responsibilities.split(',') if term.strip()]
+        else:
+            search_terms = [term.strip().lower() for term in search_responsibilities.split() if len(term.strip()) > 2]
+        
+        if not search_terms:
+            return True
+        
+        # Check if ANY search term appears in responsibilities
+        for term in search_terms:
+            if term in all_responsibilities_text:
+                return True
+        
+        return False
+
+    def _match_qualifications(self, candidate: Dict[str, Any], search_qualifications: str) -> bool:
+        """
+        Check if candidate's qualifications match the search terms
+        """
+        if not search_qualifications or not search_qualifications.strip():
+            return True  # No qualifications filter means match all
+        
+        search_lower = search_qualifications.lower()
+        
+        # Check highest qualification field
+        highest_qual = candidate.get('highest_qualification', '').lower()
+        if search_lower in highest_qual:
+            return True
+        
+        # Check detailed qualifications JSON
+        qualifications = candidate.get('qualifications', [])
+        for qual in qualifications:
+            if isinstance(qual, dict):
+                qual_text = f"{qual.get('qualification', '')} {qual.get('institution', '')}".lower()
+                if search_lower in qual_text:
+                    return True
+        
+        return False
+
+
+
     def _ensure_backup_container_exists(self):
         """Ensure backup container exists in blob storage"""
         try:
@@ -222,25 +281,31 @@ class DatabaseManager:
         return False
 
     def search_candidates(self, search_criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Search candidates based on criteria with enhanced skills search"""
+        """Search candidates based on criteria with enhanced skills search and fixed responsibilities handling"""
         try:
             conn = self.blob_db.get_connection()
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Build dynamic query (excluding skills which will be handled separately)
+            # Build dynamic query (excluding fields that need special handling)
             where_clauses = []
             params = []
             
+            # Fields that can be directly queried from database columns
+            direct_search_fields = ['name', 'current_role', 'industry', 'notice_period', 
+                                'highest_qualification', 'phone', 'email']
+            
             for field, value in search_criteria.items():
                 if value and value != "":
-                    if field in ['experience_years', 'skills']:
-                        continue  # Handle these separately
-                    else:
-                        # Make other searches case-insensitive too
+                    # Skip fields that need special handling
+                    if field in ['experience_years', 'skills', 'responsibilities', 'qualifications']:
+                        continue  # Handle these separately after getting all candidates
+                    elif field in direct_search_fields:
+                        # Make searches case-insensitive for direct database columns
                         where_clauses.append(f"LOWER({field}) LIKE LOWER(?)")
                         params.append(f"%{value}%")
             
+            # Base query to get all candidates (or filtered by direct fields)
             query = "SELECT * FROM candidates"
             if where_clauses:
                 query += " WHERE " + " AND ".join(where_clauses)
@@ -250,6 +315,8 @@ class DatabaseManager:
             
             candidates = []
             skills_search = search_criteria.get('skills', '')
+            responsibilities_search = search_criteria.get('responsibilities', '')
+            qualifications_search = search_criteria.get('qualifications', '')
             
             for row in rows:
                 candidate = dict(row)
@@ -269,6 +336,14 @@ class DatabaseManager:
                 if not self._match_skills(candidate['skills'], skills_search):
                     continue
                 
+                # NEW: Handle responsibilities search (search within experience JSON)
+                if responsibilities_search and not self._match_responsibilities(candidate['experience'], responsibilities_search):
+                    continue
+                
+                # NEW: Handle qualifications search (search within qualifications JSON and highest_qualification)
+                if qualifications_search and not self._match_qualifications(candidate, qualifications_search):
+                    continue
+                
                 candidates.append(candidate)
             
             conn.close()
@@ -277,7 +352,7 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Error searching candidates: {str(e)}")
             return []
-    
+        
     def search_candidates_by_job_requirements(self, requirements: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Search candidates based on job requirements"""
         try:

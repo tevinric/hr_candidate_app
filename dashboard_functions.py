@@ -1,7 +1,13 @@
 import streamlit as st
+from utils import format_datetime_gmt_plus_2, format_current_time_gmt_plus_2
+
 
 def dashboard_tab():
     st.markdown('<div class="section-header"><h2>📊 Dashboard</h2></div>', unsafe_allow_html=True)
+    
+    # Show current time in GMT+2
+    current_time = format_current_time_gmt_plus_2()
+    st.markdown(f"**Current Time:** {current_time}")
     
     # Get statistics
     stats = st.session_state.db_manager.get_dashboard_stats()
@@ -36,7 +42,9 @@ def dashboard_tab():
     
     with col1:
         if sync_status['last_sync_time']:
-            st.success(f"✅ Last sync: {sync_status['last_sync_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+            # Format last sync time in GMT+2
+            last_sync_formatted = format_datetime_gmt_plus_2(sync_status['last_sync_time'].isoformat())
+            st.success(f"✅ Last sync: {last_sync_formatted}")
         else:
             st.warning("⚠️ No sync performed yet")
         
@@ -84,7 +92,8 @@ def dashboard_tab():
             with st.spinner("Creating backup..."):
                 result = st.session_state.db_manager.backup_to_blob()
                 if result:
-                    st.markdown('<div class="success-message">✅ Backup created successfully!</div>', unsafe_allow_html=True)
+                    backup_time = format_current_time_gmt_plus_2()
+                    st.markdown(f'<div class="success-message">✅ Backup created successfully at {backup_time}!</div>', unsafe_allow_html=True)
                 else:
                     st.markdown('<div class="error-message">❌ Backup failed!</div>', unsafe_allow_html=True)
     
@@ -93,7 +102,8 @@ def dashboard_tab():
             with st.spinner("Restoring from backup..."):
                 result = st.session_state.db_manager.restore_from_backup()
                 if result:
-                    st.markdown('<div class="success-message">✅ Database restored successfully!</div>', unsafe_allow_html=True)
+                    restore_time = format_current_time_gmt_plus_2()
+                    st.markdown(f'<div class="success-message">✅ Database restored successfully at {restore_time}!</div>', unsafe_allow_html=True)
                     st.rerun()
                 else:
                     st.markdown('<div class="error-message">❌ Restore failed!</div>', unsafe_allow_html=True)
