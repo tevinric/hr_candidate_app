@@ -1,7 +1,7 @@
 import re
+from datetime import datetime, timezone, timedelta
+from typing import Optional, Dict, Any, List
 import logging
-from typing import Dict, List, Any, Optional
-from datetime import datetime
 
 def validate_candidate_data(candidate_data: Dict[str, Any]) -> tuple[bool, List[str]]:
     """
@@ -197,17 +197,29 @@ def format_phone_display(phone: str) -> str:
         return phone
 
 def format_datetime(dt_str: Optional[str]) -> str:
-    """Format datetime string for display"""
+    """Format datetime string for display - FIXED VERSION"""
     if not dt_str:
         return 'N/A'
     
     try:
-        # Parse ISO format datetime
-        dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+        if isinstance(dt_str, datetime):
+            dt = dt_str
+        elif isinstance(dt_str, str):
+            dt = safe_datetime_parse(dt_str)
+            if dt is None:
+                return str(dt_str)[:16]  # Return truncated if parsing fails
+        else:
+            return str(dt_str)
+        
         return dt.strftime('%Y-%m-%d %H:%M')
-    except (ValueError, AttributeError):
-        return dt_str
-
+        
+    except Exception as e:
+        logging.debug(f"Error formatting datetime '{dt_str}': {str(e)}")
+        # Return cleaned version
+        if isinstance(dt_str, str):
+            return dt_str.replace('.000000', '').replace('T', ' ')[:16]
+        return str(dt_str)
+    
 def calculate_experience_years(experience: List[Dict[str, Any]]) -> float:
     """Calculate total years of experience from enhanced experience list"""
     total_years = 0.0
@@ -524,3 +536,92 @@ def format_experience_for_display(experience: Dict[str, Any]) -> str:
         display_text += f" - {location}"
     
     return display_text
+
+
+
+from datetime import datetime, timezone, timedelta
+
+def format_datetime_gmt_plus_2(dt_str: Optional[str]) -> str:
+    """Format datetime string for display in GMT+2 timezone - FIXED VERSION"""
+    if not dt_str:
+        return 'N/A'
+    
+    try:
+        if isinstance(dt_str, str):
+            if 'T' in dt_str:
+                # ISO format
+                dt_str = dt_str.replace('Z', '+00:00')
+                if '+' not in dt_str and dt_str.endswith(':00'):
+                    dt_str += '+00:00'
+                dt = datetime.fromisoformat(dt_str)
+            else:
+                # SQLite format - Remove microseconds if present
+                clean_dt_str = re.sub(r'\.\d+$', '', dt_str)
+                
+                try:
+                    # Try parsing without microseconds first
+                    dt = datetime.strptime(clean_dt_str, '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    try:
+                        # Try with microseconds
+                        dt = datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S.%f')
+                    except ValueError:
+                        # Fallback
+                        dt = datetime.fromisoformat(dt_str.replace(' ', 'T'))
+                
+                dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt_str
+        
+        # Convert to GMT+2
+        gmt_plus_2 = timezone(timedelta(hours=2))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        
+        dt_gmt_plus_2 = dt.astimezone(gmt_plus_2)
+        return dt_gmt_plus_2.strftime('%Y-%m-%d %H:%M SAST')
+        
+    except (ValueError, AttributeError) as e:
+        logging.debug(f"Failed to parse datetime '{dt_str}': {str(e)}")
+        # Return cleaned version
+        return str(dt_str).replace('.000000', '').replace('T', ' ')[:16]
+
+def get_current_time_gmt_plus_2() -> datetime:
+    """Get current time in GMT+2 timezone"""
+    gmt_plus_2 = timezone(timedelta(hours=2))
+    return datetime.now(gmt_plus_2)
+
+def format_current_time_gmt_plus_2() -> str:
+    """Get current time formatted in GMT+2"""
+    current_time = get_current_time_gmt_plus_2()
+    return current_time.strftime('%Y-%m-%d %H:%M:%S SAST')
+
+def safe_datetime_parse(dt_str: str) -> Optional[datetime]:
+    """Safely parse datetime string with multiple format support"""
+    if not dt_str:
+        return None
+    
+    formats = [
+        '%Y-%m-%d %H:%M:%S.%f',      # SQLite with microseconds
+        '%Y-%m-%d %H:%M:%S',         # SQLite without microseconds
+        '%Y-%m-%dT%H:%M:%S.%fZ',     # ISO with microseconds
+        '%Y-%m-%dT%H:%M:%SZ',        # ISO without microseconds
+        '%Y-%m-%dT%H:%M:%S.%f',      # ISO with microseconds
+        '%Y-%m-%dT%H:%M:%S',         # ISO without microseconds
+    ]
+    
+    for fmt in formats:
+        try:
+            return datetime.strptime(dt_str, fmt)
+        except ValueError:
+            continue
+    
+    # Fallback
+    try:
+        clean_str = dt_str.replace(' ', 'T')
+        if not clean_str.endswith('Z') and '+' not in clean_str[-6:]:
+            clean_str += 'Z'
+        return datetime.fromisoformat(clean_str.replace('Z', '+00:00'))
+    except ValueError:
+        logging.warning(f"Could not parse datetime: {dt_str}")
+        return None

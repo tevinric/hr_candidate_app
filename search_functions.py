@@ -1,9 +1,14 @@
 import streamlit as st
 import logging
 from session_management import clear_search_state
+from utils import format_datetime_gmt_plus_2, format_current_time_gmt_plus_2
 
 def search_candidates_tab():
     st.markdown('<div class="section-header"><h2>🔍 Search Candidates</h2></div>', unsafe_allow_html=True)
+    
+    # Show current time in GMT+2
+    current_time = format_current_time_gmt_plus_2()
+    st.markdown(f"**Current Time:** {current_time}")
     
     # Clear Search button at the top
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -29,14 +34,6 @@ def manual_search():
     st.markdown('<div class="form-container">', unsafe_allow_html=True)
     st.subheader("🔍 Enhanced Manual Search")
     
-    # Add help text
-    st.info("""
-    **Enhanced Search Features:**
-    - **Smart Role Matching**: "Data Scientist" will find "Data Science Manager", "Senior Data Scientist", etc.
-    - **Flexible Skills Search**: Enter multiple skills separated by commas - finds candidates with ANY of the specified skills
-    - **Responsibilities Search**: Search through actual job duties and responsibilities from candidate experience
-    - **Fuzzy Matching**: Finds similar terms and variations automatically
-    """)
     
     # Pre-populate with cached criteria if available
     cached = st.session_state.cached_search_criteria
@@ -128,7 +125,8 @@ def manual_search():
             
             # Show search summary
             if results:
-                st.success(f"✅ Found {len(results)} matching candidates with enhanced search!")
+                search_time = format_current_time_gmt_plus_2()
+                st.success(f"✅ Found {len(results)} matching candidates with enhanced search! (Search completed at {search_time})")
                 if skills_search:
                     skills_list = [s.strip() for s in skills_search.split(',') if s.strip()]
                     if len(skills_list) > 1:
@@ -325,7 +323,8 @@ Example: We are looking for a Senior Data Scientist with experience in Python, m
                             
                             # Show matching summary
                             if filtered_results:
-                                st.success(f"✅ Found {len(filtered_results)} candidates matching the job requirements!")
+                                search_time = format_current_time_gmt_plus_2()
+                                st.success(f"✅ Found {len(filtered_results)} candidates matching the job requirements! (Search completed at {search_time})")
                                 
                                 # Show match distribution
                                 high_match = len([c for c in filtered_results if c.get('match_score', 0) >= 80])
@@ -862,7 +861,7 @@ def calculate_enhanced_match_score(candidate, requirements):
         return 0
 
 def display_search_results(results, show_match_score=None):
-    """Display search results with enhanced information and View Details buttons"""
+    """Display search results with enhanced information, View Details buttons, and GMT+2 timestamps"""
     from navigation import view_candidate_details
     
     if results:
@@ -955,6 +954,54 @@ def display_search_results(results, show_match_score=None):
                     button_key = f"view_details_{idx}_{candidate.get('email', 'unknown')}"
                     if st.button("👁️ View Details", key=button_key, type="primary", help="View and edit candidate details"):
                         view_candidate_details(candidate)
+                
+                # Add GMT+2 timestamps
+                timestamp_cols = st.columns([1, 1, 2])
+                with timestamp_cols[0]:
+                    if candidate.get('created_at'):
+                        created_at_gmt2 = format_datetime_gmt_plus_2(candidate['created_at'])
+                        st.caption(f"📅 Added: {created_at_gmt2}")
+                
+                with timestamp_cols[1]:
+                    if candidate.get('updated_at') and candidate.get('updated_at') != candidate.get('created_at'):
+                        updated_at_gmt2 = format_datetime_gmt_plus_2(candidate['updated_at'])
+                        st.caption(f"📝 Updated: {updated_at_gmt2}")
+                
+                # Show additional candidate preview info
+                with st.expander("👀 Quick Preview", expanded=False):
+                    preview_col1, preview_col2 = st.columns(2)
+                    
+                    with preview_col1:
+                        # Show recent experience
+                        if candidate.get('experience'):
+                            st.markdown("**Recent Experience:**")
+                            recent_exp = candidate['experience'][0]
+                            st.write(f"• {recent_exp.get('position', 'N/A')} at {recent_exp.get('company', 'N/A')}")
+                            st.write(f"• Duration: {recent_exp.get('years', 'N/A')}")
+                            
+                            # Show a few responsibilities
+                            responsibilities = recent_exp.get('responsibilities', [])
+                            if responsibilities:
+                                st.write("**Key Responsibilities:**")
+                                for resp in responsibilities[:3]:  # Show first 3
+                                    if resp:
+                                        st.write(f"• {resp[:100]}{'...' if len(resp) > 100 else ''}")
+                    
+                    with preview_col2:
+                        # Show skills with proficiency
+                        if candidate.get('skills'):
+                            st.markdown("**Skills:**")
+                            for skill in candidate['skills'][:5]:  # Show first 5 skills
+                                skill_name = skill.get('skill', 'N/A')
+                                proficiency = skill.get('proficiency', 0)
+                                stars = "⭐" * int(proficiency)
+                                st.write(f"• {skill_name} {stars}")
+                        
+                        # Show special skills
+                        if candidate.get('special_skills'):
+                            st.markdown("**Special Skills:**")
+                            special_skills = candidate['special_skills'][:150]
+                            st.write(f"{special_skills}{'...' if len(candidate.get('special_skills', '')) > 150 else ''}")
                 
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.markdown("")  # Add space between cards
