@@ -73,40 +73,57 @@ def initialize_session_state():
             st.session_state[field] = ""
 
 def initialize_database_with_retry():
-    """Initialize database with retry logic and error handling"""
+    """Initialize database with retry logic and FORCE cloud refresh on new sessions"""
+    # Check if database is already initialized
     if st.session_state.db_initialized and 'db_manager' in st.session_state:
-        # If user just logged in, force refresh from cloud
+        # CRITICAL: If user just logged in, FORCE refresh from cloud
         if not st.session_state.user_session_initialized:
             try:
-                logging.info("New user session detected, forcing database refresh from cloud")
-                st.session_state.db_manager.force_refresh_from_cloud()
-                st.session_state.user_session_initialized = True
-                logging.info("Database refreshed from cloud for new user session")
+                logging.info("NEW USER SESSION DETECTED - FORCING DATABASE REFRESH FROM CLOUD")
+                success = st.session_state.db_manager.force_refresh_from_cloud()
+                if success:
+                    st.session_state.user_session_initialized = True
+                    logging.info("✅ Database successfully refreshed from cloud for new user session")
+                    # Clear any cached search data since we have fresh data
+                    clear_search_state()
+                else:
+                    logging.error("❌ Failed to refresh database from cloud, but continuing with local version")
+                    # Still mark as initialized to avoid repeated attempts
+                    st.session_state.user_session_initialized = True
             except Exception as e:
-                logging.error(f"Failed to refresh database from cloud: {str(e)}")
-                # Continue anyway, use local version
+                logging.error(f"❌ Error during forced cloud refresh: {str(e)}")
+                # Still mark as initialized to avoid repeated attempts
+                st.session_state.user_session_initialized = True
         
         return True
     
+    # Database not initialized, create new instance with retries
     max_retries = 3
     retry_count = 0
     
     while retry_count < max_retries:
         try:
+            logging.info("Initializing new database manager...")
             st.session_state.db_manager = DatabaseManager()
             st.session_state.db_initialized = True
             st.session_state.db_error = None
             
-            # Mark that we need to initialize user session
+            # Mark that we need to initialize user session (force cloud refresh)
             st.session_state.user_session_initialized = False
             
+            logging.info("✅ Database manager initialized successfully")
             return True
+            
         except Exception as e:
             retry_count += 1
             st.session_state.db_error = str(e)
+            logging.error(f"❌ Database initialization attempt {retry_count} failed: {str(e)}")
+            
             if retry_count >= max_retries:
+                logging.error(f"❌ Database initialization failed after {max_retries} attempts")
                 return False
             else:
+                logging.info(f"⏳ Retrying database initialization in 2 seconds...")
                 time.sleep(2)  # Wait before retry
     
     return False
@@ -115,42 +132,45 @@ def force_database_refresh():
     """Force refresh database from cloud - call this when user logs in"""
     try:
         if 'db_manager' in st.session_state and st.session_state.db_manager:
-            logging.info("Forcing database refresh from cloud storage")
+            logging.info("🔄 FORCING DATABASE REFRESH FROM CLOUD STORAGE")
             success = st.session_state.db_manager.force_refresh_from_cloud()
             
             if success:
                 # Clear cached search results since we have fresh data
                 clear_search_state()
-                logging.info("Database successfully refreshed from cloud")
+                logging.info("✅ Database successfully refreshed from cloud")
                 return True
             else:
-                logging.error("Failed to refresh database from cloud")
+                logging.error("❌ Failed to refresh database from cloud")
                 return False
         else:
-            logging.warning("Database manager not initialized, cannot refresh")
+            logging.warning("⚠️ Database manager not initialized, cannot refresh")
             return False
             
     except Exception as e:
-        logging.error(f"Error forcing database refresh: {str(e)}")
+        logging.error(f"❌ Error forcing database refresh: {str(e)}")
         return False
 
 def ensure_database_sync():
-    """Ensure database is synced to cloud after operations"""
+    """Ensure database is synced to cloud after operations - BLOCKING OPERATION"""
     try:
         if 'db_manager' in st.session_state and st.session_state.db_manager:
+            logging.info("🔄 ENSURING DATABASE SYNC TO CLOUD")
             success = st.session_state.db_manager.ensure_cloud_sync()
             if success:
-                logging.info("Database sync to cloud completed")
+                logging.info("✅ Database sync to cloud completed successfully")
             else:
-                logging.warning("Database sync to cloud failed")
+                logging.warning("⚠️ Database sync to cloud failed")
             return success
         return False
     except Exception as e:
-        logging.error(f"Error ensuring database sync: {str(e)}")
+        logging.error(f"❌ Error ensuring database sync: {str(e)}")
         return False
 
 def reset_user_session():
     """Reset user session state when user logs out"""
+    logging.info("🔄 Resetting user session - will refresh from cloud on next login")
+    
     st.session_state.user_session_initialized = False
     st.session_state.db_initialized = False
     
@@ -162,7 +182,7 @@ def reset_user_session():
     clear_search_state()
     clear_form_session_state()
     
-    logging.info("User session reset - database will refresh from cloud on next login")
+    logging.info("✅ User session reset - database will refresh from cloud on next login")
 
 def clear_form_session_state():
     """Clear form-related session state"""
@@ -189,3 +209,4 @@ def clear_search_state():
     st.session_state.cached_search_criteria = {}
     st.session_state.cached_search_results = []
     st.session_state.search_performed = False
+    logging.info("🗑️ Search state cleared")

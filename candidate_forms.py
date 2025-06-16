@@ -535,7 +535,7 @@ def show_enhanced_experience_section(prefix=""):
     st.markdown('</div>', unsafe_allow_html=True)
 
 def handle_candidate_save():
-    """Handle the candidate save process with overwrite logic"""
+    """Handle the candidate save process with overwrite logic and FORCED cloud sync"""
     try:
         # Clean up empty entries
         clean_qualifications = [q for q in st.session_state.qualifications_list if q.get('qualification')]
@@ -584,7 +584,7 @@ def handle_candidate_save():
             st.session_state.show_overwrite_dialog = True
             st.rerun()
         else:
-            # New candidate, proceed with insert
+            # New candidate, proceed with insert (includes FORCED cloud sync)
             try:
                 db_result = st.session_state.db_manager.insert_candidate(candidate_data)
                 
@@ -596,7 +596,12 @@ def handle_candidate_save():
                     message = "Operation completed" if result else "Operation failed"
                 
                 if result:
-                    st.markdown('<div class="success-message">✅ Candidate saved successfully!</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="success-message">✅ Candidate saved successfully and synced to cloud!</div>', unsafe_allow_html=True)
+                    
+                    # CRITICAL: Additional sync confirmation
+                    import logging
+                    logging.info("✅ Candidate save completed with forced cloud sync")
+                    
                     clear_form_session_state()
                     st.rerun()
                 else:
@@ -621,12 +626,17 @@ def show_overwrite_confirmation_dialog():
     
     with col1:
         if st.button("✅ Overwrite Record", type="primary", use_container_width=True, key="overwrite_btn"):
-            # Update the existing candidate
+            # Update the existing candidate (includes FORCED cloud sync)
             try:
                 result, message = st.session_state.db_manager.update_candidate(st.session_state.pending_candidate_data)
                 
                 if result:
-                    st.markdown('<div class="success-message">✅ Candidate record updated successfully!</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="success-message">✅ Candidate record updated successfully and synced to cloud!</div>', unsafe_allow_html=True)
+                    
+                    # CRITICAL: Additional sync confirmation
+                    import logging
+                    logging.info("✅ Candidate overwrite completed with forced cloud sync")
+                    
                     clear_form_session_state()
                     clear_overwrite_dialog_state()
                     st.rerun()

@@ -9,7 +9,7 @@ def main_application_page():
     
     # Sidebar navigation
     st.sidebar.markdown("""
-    <div style="text-align: center; padding: 1rem; color: white;">
+    <div style="text-align: center; padding: 1rem;">
         <h2>🚀 Navigation</h2>
     </div>
     """, unsafe_allow_html=True)

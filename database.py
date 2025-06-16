@@ -37,7 +37,7 @@ class DatabaseManager:
             logging.error(f"Failed to ensure backup container exists: {str(e)}")
     
     def insert_candidate(self, candidate_data: Dict[str, Any]) -> Tuple[bool, str]:
-        """Insert a new candidate into the database"""
+        """Insert a new candidate into the database with FORCED cloud sync"""
         try:
             # Check if email already exists
             existing_candidate = self.get_candidate_by_email(candidate_data.get('email'))
@@ -77,10 +77,14 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
-            # Ensure sync to blob storage with blocking operation
+            # CRITICAL: FORCE immediate sync to cloud - BLOCKING OPERATION
+            logging.info("🔄 FORCING IMMEDIATE CLOUD SYNC after candidate insertion")
             sync_success = self.blob_db.sync_to_blob(force=True)
-            if not sync_success:
-                logging.warning("Failed to sync candidate insertion to cloud, but local save succeeded")
+            if sync_success:
+                logging.info("✅ Candidate insertion synced to cloud successfully")
+            else:
+                logging.error("❌ FAILED to sync candidate insertion to cloud!")
+                # Don't fail the operation, but log the error
             
             # Schedule backup
             self._schedule_backup()
@@ -99,7 +103,7 @@ class DatabaseManager:
             return False, f"Error saving candidate: {str(e)}"
 
     def update_candidate(self, candidate_data: Dict[str, Any]) -> Tuple[bool, str]:
-        """Update an existing candidate in the database"""
+        """Update an existing candidate in the database with FORCED cloud sync"""
         try:
             email = candidate_data.get('email')
             existing_candidate = self.get_candidate_by_email(email)
@@ -139,10 +143,14 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
-            # Ensure sync to blob storage with blocking operation
+            # CRITICAL: FORCE immediate sync to cloud - BLOCKING OPERATION
+            logging.info("🔄 FORCING IMMEDIATE CLOUD SYNC after candidate update")
             sync_success = self.blob_db.sync_to_blob(force=True)
-            if not sync_success:
-                logging.warning("Failed to sync candidate update to cloud, but local save succeeded")
+            if sync_success:
+                logging.info("✅ Candidate update synced to cloud successfully")
+            else:
+                logging.error("❌ FAILED to sync candidate update to cloud!")
+                # Don't fail the operation, but log the error
             
             return True, "Candidate updated successfully"
             
@@ -151,7 +159,7 @@ class DatabaseManager:
             return False, f"Error updating candidate: {str(e)}"
 
     def delete_candidate(self, email: str) -> Tuple[bool, str]:
-        """Delete a candidate by email address"""
+        """Delete a candidate by email address with FORCED cloud sync"""
         try:
             # Check if candidate exists
             existing_candidate = self.get_candidate_by_email(email)
@@ -170,10 +178,14 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
-            # Ensure sync to blob storage with blocking operation
+            # CRITICAL: FORCE immediate sync to cloud - BLOCKING OPERATION
+            logging.info("🔄 FORCING IMMEDIATE CLOUD SYNC after candidate deletion")
             sync_success = self.blob_db.sync_to_blob(force=True)
-            if not sync_success:
-                logging.warning("Failed to sync candidate deletion to cloud, but local deletion succeeded")
+            if sync_success:
+                logging.info("✅ Candidate deletion synced to cloud successfully")
+            else:
+                logging.error("❌ FAILED to sync candidate deletion to cloud!")
+                # Don't fail the operation, but log the error
             
             logging.info(f"Candidate with email {email} deleted successfully")
             return True, "Candidate deleted successfully"
@@ -182,23 +194,51 @@ class DatabaseManager:
             logging.error(f"Error deleting candidate: {str(e)}")
             return False, f"Error deleting candidate: {str(e)}"
 
+    def _match_skills(self, candidate_skills: List[Dict[str, Any]], search_skills: str) -> bool:
+        """
+        Check if any of the candidate's skills match any of the search skills (case-insensitive)
+        """
+        if not search_skills or not search_skills.strip():
+            return True  # No skills filter means match all
+        
+        # Parse comma-separated skills from search input
+        query_skills = [skill.strip().lower() for skill in search_skills.split(',') if skill.strip()]
+        
+        if not query_skills:
+            return True
+        
+        # Get candidate skill names (case-insensitive)
+        candidate_skill_names = [skill.get('skill', '').lower() for skill in candidate_skills if skill.get('skill')]
+        
+        # Check for ANY skill match (OR logic)
+        for query_skill in query_skills:
+            for candidate_skill in candidate_skill_names:
+                # Flexible matching: exact match, contains, or word overlap
+                if (query_skill in candidate_skill or 
+                    candidate_skill in query_skill or
+                    any(word in candidate_skill for word in query_skill.split() if len(word) > 2)):
+                    return True
+        
+        return False
+
     def search_candidates(self, search_criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Search candidates based on criteria"""
+        """Search candidates based on criteria with enhanced skills search"""
         try:
             conn = self.blob_db.get_connection()
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Build dynamic query
+            # Build dynamic query (excluding skills which will be handled separately)
             where_clauses = []
             params = []
             
             for field, value in search_criteria.items():
                 if value and value != "":
-                    if field == 'experience_years':
-                        continue  # Handle separately
+                    if field in ['experience_years', 'skills']:
+                        continue  # Handle these separately
                     else:
-                        where_clauses.append(f"{field} LIKE ?")
+                        # Make other searches case-insensitive too
+                        where_clauses.append(f"LOWER({field}) LIKE LOWER(?)")
                         params.append(f"%{value}%")
             
             query = "SELECT * FROM candidates"
@@ -209,6 +249,8 @@ class DatabaseManager:
             rows = cursor.fetchall()
             
             candidates = []
+            skills_search = search_criteria.get('skills', '')
+            
             for row in rows:
                 candidate = dict(row)
                 
@@ -222,6 +264,10 @@ class DatabaseManager:
                 if search_criteria.get('experience_years', 0) > 0:
                     if len(candidate['experience']) < search_criteria['experience_years']:
                         continue
+                
+                # Enhanced skills filtering with case-insensitive comma-separated search
+                if not self._match_skills(candidate['skills'], skills_search):
+                    continue
                 
                 candidates.append(candidate)
             
@@ -477,35 +523,51 @@ class DatabaseManager:
     def force_refresh_from_cloud(self) -> bool:
         """Force refresh database from cloud storage - used when user logs in"""
         try:
-            logging.info("Forcing refresh from cloud storage")
+            logging.info("🔄 FORCING REFRESH FROM CLOUD STORAGE")
             # Force download from blob storage
             success = self.blob_db.sync_from_blob(force=True)
             
             if success:
                 # Clear any cached connections
                 self.blob_db.force_download_on_next_connection_flag()
-                logging.info("Successfully refreshed database from cloud")
+                logging.info("✅ Successfully refreshed database from cloud")
             else:
-                logging.error("Failed to refresh database from cloud")
+                logging.error("❌ Failed to refresh database from cloud")
             
             return success
         except Exception as e:
-            logging.error(f"Error in force_refresh_from_cloud: {str(e)}")
+            logging.error(f"❌ Error in force_refresh_from_cloud: {str(e)}")
             return False
     
     def ensure_cloud_sync(self) -> bool:
-        """Ensure database changes are synced to cloud - blocking operation"""
+        """Ensure database changes are synced to cloud - BLOCKING OPERATION with verification"""
         try:
-            logging.info("Ensuring database sync to cloud")
+            logging.info("🔄 ENSURING DATABASE SYNC TO CLOUD")
+            
+            # Check if database exists locally first
+            if not hasattr(self, 'blob_db') or not self.blob_db:
+                logging.error("❌ Blob database manager not available")
+                return False
+            
             # Force sync to cloud with blocking operation
+            logging.info("🔄 Starting forced sync to blob storage...")
             success = self.blob_db.sync_to_blob(force=True)
             
             if success:
-                logging.info("Database successfully synced to cloud")
+                logging.info("✅ Database successfully synced to cloud")
+                
+                # Additional verification - check sync timestamp
+                sync_status = self.blob_db.get_sync_status()
+                if sync_status.get('last_sync_time'):
+                    logging.info(f"✅ Sync timestamp verified: {sync_status['last_sync_time']}")
+                else:
+                    logging.warning("⚠️ Sync completed but no timestamp found")
+                
+                return True
             else:
-                logging.error("Failed to sync database to cloud")
-            
-            return success
+                logging.error("❌ Failed to sync database to cloud")
+                return False
+                
         except Exception as e:
-            logging.error(f"Error in ensure_cloud_sync: {str(e)}")
+            logging.error(f"❌ Error in ensure_cloud_sync: {str(e)}")
             return False
