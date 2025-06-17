@@ -1,10 +1,21 @@
 import streamlit as st
 import tempfile
 import os
-from session_management import clear_form_session_state, clear_overwrite_dialog_state
+from session_management import clear_form_session_state, clear_overwrite_dialog_state, clear_all_candidate_state
 
 def upload_cv_tab():
     st.markdown('<div class="section-header"><h2>📄 Add New Candidate</h2></div>', unsafe_allow_html=True)
+    
+    # Add "Add New Candidate" button at the top
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🆕 Add New Candidate", type="secondary", use_container_width=True, 
+                     help="Clear all data and start fresh for a new candidate", key="add_new_candidate_btn"):
+            clear_all_candidate_state()
+            st.success("✅ Ready for new candidate! You can now upload a new CV or enter data manually.")
+            st.rerun()
+    
+    st.markdown("---")
     
     # Entry method selection
     st.markdown('<div class="entry-method">', unsafe_allow_html=True)
