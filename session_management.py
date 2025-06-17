@@ -198,6 +198,39 @@ def clear_form_session_state():
         if key in st.session_state:
             del st.session_state[key]
 
+def clear_all_candidate_state():
+    """Clear all candidate-related session state for adding a new candidate"""
+    logging.info("🗑️ Clearing all candidate state for new candidate")
+    
+    # Clear form data
+    clear_form_session_state()
+    
+    # Clear overwrite dialog state
+    clear_overwrite_dialog_state()
+    
+    # Clear CV processing state
+    st.session_state.cv_processed = False
+    st.session_state.extracted_data = None
+    st.session_state.manual_entry_mode = False
+    
+    # Reset lists to empty
+    st.session_state.qualifications_list = []
+    st.session_state.skills_list = []
+    st.session_state.experience_list = []
+    st.session_state.achievements_list = []
+    
+    # Reset form fields to empty
+    form_fields = [
+        'form_name', 'form_email', 'form_phone', 'form_current_role', 'form_industry',
+        'form_notice_period', 'form_current_salary', 'form_desired_salary',
+        'form_highest_qualification', 'form_special_skills'
+    ]
+    
+    for field in form_fields:
+        st.session_state[field] = ""
+    
+    logging.info("✅ All candidate state cleared - ready for new candidate")
+
 def clear_overwrite_dialog_state():
     """Clear overwrite dialog state"""
     st.session_state.show_overwrite_dialog = False
