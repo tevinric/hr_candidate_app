@@ -149,13 +149,13 @@ class BlobDatabaseManager:
             self.is_syncing = False
     
     def _create_initial_database(self):
-        """Create initial database with required tables"""
+        """Create initial database with required tables including comments field"""
         os.makedirs(os.path.dirname(self.local_db_path), exist_ok=True)
         
         conn = sqlite3.connect(self.local_db_path)
         cursor = conn.cursor()
         
-        # Create candidates table
+        # Create candidates table with comments field
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS candidates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,6 +173,7 @@ class BlobDatabaseManager:
                 qualifications TEXT,  -- JSON string
                 achievements TEXT,    -- JSON string
                 special_skills TEXT,
+                comments TEXT,    -- New comments field
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -205,7 +206,7 @@ class BlobDatabaseManager:
         
         # Upload initial database
         self._upload_database(force=True)
-        logging.info("Initial database created and uploaded")
+        logging.info("Initial database created and uploaded with comments field")
     
     def _start_auto_sync(self):
         """Start automatic sync in background thread"""

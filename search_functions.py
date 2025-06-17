@@ -57,6 +57,11 @@ def manual_search():
                 value=cached.get('industry', ''),
                 help="e.g., 'Tech' will find 'Technology', 'IT', 'Software'"
             )
+            company_search = st.text_input(
+                "Company (experience matching)", 
+                value=cached.get('company', ''),
+                help="Search for candidates who have worked at a specific company. Current employees ranked higher than past employees."
+            )
             skills_search = st.text_area(
                 "Skills (comma-separated for ANY match)", 
                 value=cached.get('skills', ''),
@@ -75,6 +80,13 @@ def manual_search():
                 "Qualifications (contains)", 
                 value=cached.get('qualifications', ''),
                 help="Search in education background and qualifications"
+            )
+            # NEW: Comments search field
+            comments_search = st.text_area(
+                "Comments & Notes (keywords)", 
+                value=cached.get('comments', ''),
+                height=80,
+                help="Search through comments and notes added to candidate profiles. Enter keywords or phrases that should appear in the comments."
             )
             experience_years = st.number_input(
                 "Minimum Experience Years", 
@@ -96,9 +108,11 @@ def manual_search():
             'name': name_search,
             'current_role': role_search,
             'industry': industry_search,
+            'company': company_search,
             'skills': skills_search,
             'responsibilities': responsibilities_search,
             'qualifications': qualification_search,
+            'comments': comments_search,  # New comments search field
             'experience_years': experience_years,
             'notice_period': notice_period_search
         }
@@ -132,6 +146,12 @@ def manual_search():
                     if len(skills_list) > 1:
                         st.info(f"📋 Searched for candidates with ANY of these skills: {', '.join(skills_list)}")
                 
+                if company_search:
+                    st.info(f"🏢 Searching for candidates with experience at: {company_search}")
+                
+                if comments_search:
+                    st.info(f"📝 Searching in comments for: {comments_search}")
+                
                 # Show some debug info to help user understand results
                 with st.expander("🔍 Search Debug Info", expanded=False):
                     st.write("**Search criteria applied:**")
@@ -147,11 +167,20 @@ def manual_search():
                             candidate_skills = [skill.get('skill', '') for skill in top_candidate.get('skills', [])]
                             st.write(f"• Their skills: {', '.join(candidate_skills[:5])}")
                         
+                        if search_criteria.get('company'):
+                            companies = [exp.get('company', '') for exp in top_candidate.get('experience', []) if exp.get('company')]
+                            st.write(f"• Their companies: {', '.join(companies[:3])}")
+                        
                         if search_criteria.get('responsibilities'):
                             sample_resp = []
                             for exp in top_candidate.get('experience', []):
                                 sample_resp.extend(exp.get('responsibilities', [])[:1])
                             st.write(f"• Sample responsibilities: {' | '.join(sample_resp[:3])}")
+                        
+                        if search_criteria.get('comments'):
+                            comments_preview = top_candidate.get('comments', '')[:100]
+                            if comments_preview:
+                                st.write(f"• Comments preview: {comments_preview}{'...' if len(top_candidate.get('comments', '')) > 100 else ''}")
             else:
                 st.warning("⚠️ No candidates found. Try broader search terms or check spelling.")
                 # Provide search suggestions
@@ -170,6 +199,10 @@ def show_search_suggestions(search_criteria):
     if search_criteria.get('skills'):
         suggestions.append("• Try individual skill names instead of multiple skills")
         suggestions.append("• Check spelling of skill names")
+    
+    if search_criteria.get('company'):
+        suggestions.append("• Try partial company names (e.g., 'Microsoft' instead of 'Microsoft Corporation')")
+        suggestions.append("• Check spelling of company name")
     
     if search_criteria.get('experience_years', 0) > 5:
         suggestions.append("• Try reducing the minimum experience years requirement")
@@ -375,7 +408,7 @@ Example: We are looking for a Senior Data Scientist with experience in Python, m
     st.markdown('</div>', unsafe_allow_html=True)
 
 def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
-    """Enhanced relevance calculation for manual search with responsibilities included"""
+    """Enhanced relevance calculation for manual search with comments matching"""
     score = 0
     total_criteria = 0
     
@@ -445,6 +478,15 @@ def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
             if (industry_query in candidate_industry or candidate_industry in industry_query or
                 any(word in candidate_industry for word in industry_query.split() if len(word) > 3)):
                 score += 1
+        
+        # NEW: Company matching with recency ranking
+        if search_criteria.get('company'):
+            total_criteria += 1
+            company_query = search_criteria['company'].lower()
+            candidate_experience = candidate.get('experience', [])
+            
+            company_match_score = calculate_company_match_score(candidate_experience, company_query)
+            score += company_match_score
         
         # Enhanced skills matching - ANY of the specified skills (including responsibilities)
         if search_criteria.get('skills'):
@@ -528,6 +570,23 @@ def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
                     keyword_score = matched_keywords / len(query_keywords)
                     score += keyword_score
         
+        # NEW: Comments matching
+        if search_criteria.get('comments'):
+            total_criteria += 1
+            comments_query = search_criteria['comments'].lower()
+            candidate_comments = candidate.get('comments', '').lower()
+            
+            # FLEXIBLE keyword matching for comments
+            query_keywords = [word.strip() for word in comments_query.replace(',', ' ').split() if len(word.strip()) > 1]
+            
+            if query_keywords:
+                matched_keywords = sum(1 for keyword in query_keywords if keyword in candidate_comments)
+                
+                # Need at least 1 keyword to match OR 20% of keywords
+                if matched_keywords >= max(1, len(query_keywords) * 0.2):
+                    keyword_score = matched_keywords / len(query_keywords)
+                    score += keyword_score
+        
         # Qualifications matching
         if search_criteria.get('qualifications'):
             total_criteria += 1
@@ -571,6 +630,37 @@ def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
             
     except Exception as e:
         logging.error(f"Error calculating manual search relevance: {str(e)}")
+        return 0
+
+def calculate_company_match_score(experience_list, company_query):
+    """Calculate company match score with recency ranking"""
+    try:
+        company_match_score = 0
+        
+        for i, exp in enumerate(experience_list):
+            company_name = exp.get('company', '').lower()
+            
+            # Check if company matches
+            if (company_query in company_name or 
+                company_name in company_query or
+                any(word in company_name for word in company_query.split() if len(word) > 2)):
+                
+                # Calculate recency bonus (first position gets highest score)
+                # Most recent (index 0) gets 1.0, next gets 0.8, next gets 0.6, etc.
+                recency_multiplier = max(0.2, 1.0 - (i * 0.2))
+                
+                # Add the score with recency bonus
+                company_match_score += recency_multiplier
+                
+                # If it's the most recent position (current employer), give extra bonus
+                if i == 0:
+                    company_match_score += 0.5  # Extra bonus for current employer
+        
+        # Cap the score at 1.0 to maintain the scoring scale
+        return min(1.0, company_match_score)
+        
+    except Exception as e:
+        logging.error(f"Error calculating company match score: {str(e)}")
         return 0
 
 def rank_candidates_by_enhanced_job_match(candidates, requirements):
@@ -924,11 +1014,19 @@ def display_search_results(results, show_match_score=None):
                     st.write(f"**Phone:** {candidate.get('phone', 'N/A')}")
                     st.write(f"**Notice:** {candidate.get('notice_period', 'N/A')}")
                     
-                    # Show recent company
+                    # Show recent company with emphasis if it matches search
                     recent_exp = candidate.get('experience', [])
                     if recent_exp:
                         recent_company = recent_exp[0].get('company', 'N/A')
-                        st.caption(f"🏢 {recent_company}")
+                        # Check if this candidate was found via company search
+                        if st.session_state.cached_search_criteria.get('company'):
+                            search_company = st.session_state.cached_search_criteria['company'].lower()
+                            if search_company in recent_company.lower():
+                                st.caption(f"🏢 **{recent_company}** 🎯")  # Highlight current company match
+                            else:
+                                st.caption(f"🏢 {recent_company}")
+                        else:
+                            st.caption(f"🏢 {recent_company}")
                 
                 with col4:
                     st.write(f"**Education:** {candidate.get('highest_qualification', 'N/A')}")
@@ -986,6 +1084,16 @@ def display_search_results(results, show_match_score=None):
                                 for resp in responsibilities[:3]:  # Show first 3
                                     if resp:
                                         st.write(f"• {resp[:100]}{'...' if len(resp) > 100 else ''}")
+                        
+                        # Show company history if company search was performed
+                        if st.session_state.cached_search_criteria.get('company'):
+                            st.markdown("**Company History:**")
+                            companies = [exp.get('company', '') for exp in candidate.get('experience', []) if exp.get('company')]
+                            for i, company in enumerate(companies[:5]):  # Show first 5 companies
+                                if i == 0:
+                                    st.write(f"• {company} (Current)")
+                                else:
+                                    st.write(f"• {company} (Previous)")
                     
                     with preview_col2:
                         # Show skills with proficiency

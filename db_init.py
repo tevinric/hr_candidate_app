@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 HR Candidate Management Tool - Database Initialization Script
-This script creates and initializes the SQLite database with proper schema.
+This script creates and initializes the SQLite database with proper schema including comments field.
 """
 
 import sqlite3
@@ -36,7 +36,7 @@ class DatabaseInitializer:
         logging.info(f"Database path: {self.db_path}")
     
     def create_database(self):
-        """Create database with all required tables"""
+        """Create database with all required tables including comments field"""
         try:
             # Remove existing database if it exists
             if os.path.exists(self.db_path):
@@ -48,7 +48,7 @@ class DatabaseInitializer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # Create candidates table
+            # Create candidates table with comments field
             logging.info("Creating candidates table...")
             cursor.execute('''
                 CREATE TABLE candidates (
@@ -67,6 +67,7 @@ class DatabaseInitializer:
                     qualifications TEXT,  -- JSON string containing qualifications array
                     achievements TEXT,    -- JSON string containing achievements array
                     special_skills TEXT,
+                    comments TEXT,    -- New comments field for additional notes
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -102,6 +103,7 @@ class DatabaseInitializer:
             cursor.execute('CREATE INDEX idx_candidates_name ON candidates(name)')
             cursor.execute('CREATE INDEX idx_candidates_current_role ON candidates(current_role)')
             cursor.execute('CREATE INDEX idx_candidates_industry ON candidates(industry)')
+            cursor.execute('CREATE INDEX idx_candidates_comments ON candidates(comments)')  # New index for comments
             cursor.execute('CREATE INDEX idx_backup_log_time ON backup_log(backup_time)')
             cursor.execute('CREATE INDEX idx_sync_log_time ON sync_log(sync_time)')
             
@@ -119,7 +121,7 @@ class DatabaseInitializer:
             conn.commit()
             conn.close()
             
-            logging.info("✅ Database created successfully!")
+            logging.info("✅ Database created successfully with comments field!")
             return True
             
         except Exception as e:
@@ -127,13 +129,13 @@ class DatabaseInitializer:
             return False
     
     def add_sample_data(self):
-        """Add sample candidate data for testing"""
+        """Add sample candidate data for testing including comments"""
         try:
             logging.info("Adding sample data...")
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # Sample candidates
+            # Sample candidates with comments
             sample_candidates = [
                 {
                     'name': 'John Smith',
@@ -204,7 +206,8 @@ class DatabaseInitializer:
                         'Published research paper on microservices at local conference',
                         'Volunteer coding instructor for underprivileged youth'
                     ],
-                    'special_skills': 'Machine Learning, DevOps, Technical Leadership'
+                    'special_skills': 'Machine Learning, DevOps, Technical Leadership',
+                    'comments': 'Excellent candidate with strong technical skills and leadership potential. Very positive attitude during interview. Would be a great fit for our senior developer role. Available to start immediately.'
                 },
                 {
                     'name': 'Sarah Johnson',
@@ -281,7 +284,61 @@ class DatabaseInitializer:
                         'Published 3 papers in peer-reviewed journals',
                         'Certified in Advanced Machine Learning (Coursera)'
                     ],
-                    'special_skills': 'Deep Learning, Natural Language Processing, Statistical Analysis, Financial Modeling'
+                    'special_skills': 'Deep Learning, Natural Language Processing, Statistical Analysis, Financial Modeling',
+                    'comments': 'Outstanding data scientist with strong academic background and practical experience. Excellent communication skills and ability to explain complex concepts to non-technical stakeholders. Very interested in our fintech position. Cultural fit seems excellent based on values alignment.'
+                },
+                {
+                    'name': 'Michael Chen',
+                    'current_role': 'Frontend Developer',
+                    'email': 'michael.chen@example.com',
+                    'phone': '+27555123456',
+                    'notice_period': '2 weeks',
+                    'current_salary': 'R650,000',
+                    'industry': 'Technology',
+                    'desired_salary': 'R750,000',
+                    'highest_qualification': 'BSc Information Systems',
+                    'experience': [
+                        {
+                            'position': 'Frontend Developer',
+                            'company': 'Digital Agency',
+                            'years': '2 years',
+                            'location': 'Cape Town, South Africa',
+                            'employment_type': 'Full-time',
+                            'responsibilities': [
+                                'Develop responsive web applications using React and Vue.js',
+                                'Collaborate with UX/UI designers on user interface implementation',
+                                'Optimize web applications for performance and accessibility',
+                                'Maintain and update existing web applications'
+                            ],
+                            'achievements': [
+                                'Improved website load times by 50%',
+                                'Led frontend development for 5 major client projects'
+                            ],
+                            'technologies': ['React', 'Vue.js', 'JavaScript', 'HTML5', 'CSS3', 'Webpack']
+                        }
+                    ],
+                    'skills': [
+                        {'skill': 'React', 'proficiency': 4},
+                        {'skill': 'Vue.js', 'proficiency': 4},
+                        {'skill': 'JavaScript', 'proficiency': 5},
+                        {'skill': 'HTML5', 'proficiency': 5},
+                        {'skill': 'CSS3', 'proficiency': 4},
+                        {'skill': 'TypeScript', 'proficiency': 3}
+                    ],
+                    'qualifications': [
+                        {
+                            'qualification': 'BSc Information Systems',
+                            'institution': 'University of Cape Town',
+                            'year': '2021',
+                            'grade': 'Second Class Honours'
+                        }
+                    ],
+                    'achievements': [
+                        'Completed Google Frontend Developer Certificate',
+                        'Contributed to 3 open source projects'
+                    ],
+                    'special_skills': 'UI/UX Design, Mobile-first Development, Performance Optimization',
+                    'comments': 'Talented junior developer with good potential for growth. Shows enthusiasm for learning new technologies. Would benefit from mentorship in backend technologies. Interview showed good problem-solving skills and creativity.'
                 }
             ]
             
@@ -291,9 +348,9 @@ class DatabaseInitializer:
                     INSERT INTO candidates (
                         name, current_role, email, phone, notice_period, current_salary,
                         industry, desired_salary, highest_qualification, experience,
-                        skills, qualifications, achievements, special_skills,
+                        skills, qualifications, achievements, special_skills, comments,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     candidate['name'],
                     candidate['current_role'],
@@ -309,6 +366,7 @@ class DatabaseInitializer:
                     json.dumps(candidate['qualifications']),
                     json.dumps(candidate['achievements']),
                     candidate['special_skills'],
+                    candidate['comments'],  # New comments field
                     datetime.now(),
                     datetime.now()
                 ))
@@ -316,7 +374,7 @@ class DatabaseInitializer:
             conn.commit()
             conn.close()
             
-            logging.info("✅ Sample data added successfully!")
+            logging.info("✅ Sample data with comments added successfully!")
             return True
             
         except Exception as e:
@@ -342,6 +400,15 @@ class DatabaseInitializer:
                     logging.error(f"❌ Table '{table}' missing")
                     return False
             
+            # Check if comments field exists in candidates table
+            cursor.execute("PRAGMA table_info(candidates)")
+            columns = [column[1] for column in cursor.fetchall()]
+            if 'comments' in columns:
+                logging.info("✅ Comments field exists in candidates table")
+            else:
+                logging.error("❌ Comments field missing from candidates table")
+                return False
+            
             # Check data
             cursor.execute("SELECT COUNT(*) FROM candidates")
             candidate_count = cursor.fetchone()[0]
@@ -351,6 +418,14 @@ class DatabaseInitializer:
             cursor.execute("PRAGMA index_list(candidates)")
             indexes = cursor.fetchall()
             logging.info(f"📊 Total indexes on candidates table: {len(indexes)}")
+            
+            # Check if comments index exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_candidates_comments'")
+            comments_index = cursor.fetchone()
+            if comments_index:
+                logging.info("✅ Comments index exists")
+            else:
+                logging.warning("⚠️ Comments index missing")
             
             # Test integrity
             cursor.execute("PRAGMA integrity_check")
@@ -401,6 +476,13 @@ class DatabaseInitializer:
             columns = cursor.fetchall()
             for col_info in columns:
                 logging.info(f"  - {col_info[1]} ({col_info[2]})")
+                
+            # Verify comments field specifically
+            comments_field = any(col[1] == 'comments' for col in columns)
+            if comments_field:
+                logging.info("✅ Comments field confirmed in schema")
+            else:
+                logging.error("❌ Comments field NOT found in schema")
             
             conn.close()
             
@@ -409,8 +491,8 @@ class DatabaseInitializer:
 
 def main():
     """Main function to initialize database"""
-    print("🚀 HR Candidate Management Tool - Database Initializer")
-    print("=" * 60)
+    print("🚀 HR Candidate Management Tool - Database Initializer (with Comments)")
+    print("=" * 70)
     
     # You can specify a custom path here if needed
     # For example: db_init = DatabaseInitializer('/path/to/your/database.db')
@@ -423,7 +505,7 @@ def main():
             return False
         
         # Add sample data (optional - comment out if you don't want sample data)
-        print("\n📝 Would you like to add sample data? (y/n): ", end="")
+        print("\n📝 Would you like to add sample data with comments? (y/n): ", end="")
         add_sample = input().lower().strip()
         
         if add_sample in ['y', 'yes']:
@@ -436,17 +518,22 @@ def main():
             return False
         
         # Show database info
-        print("\n" + "=" * 60)
+        print("\n" + "=" * 70)
         print("📊 Database Information:")
-        print("-" * 60)
+        print("-" * 70)
         db_init.get_database_info()
         
-        print("\n" + "=" * 60)
+        print("\n" + "=" * 70)
         print("✅ Database initialization completed successfully!")
-        print("🎉 Your HR Candidate Management database is ready to use!")
+        print("🎉 Your HR Candidate Management database is ready with comments support!")
         print("\n💡 To use this database with your application:")
         print(f"   Set LOCAL_DB_PATH environment variable to: {db_init.db_path}")
         print("   Or update your config.py file with the correct path.")
+        print("\n📝 New Features:")
+        print("   - Comments field added to candidates table")
+        print("   - Comments search functionality enabled")
+        print("   - Comments index created for better search performance")
+        print("   - Sample data includes example comments")
         
         return True
         

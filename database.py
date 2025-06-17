@@ -83,7 +83,63 @@ class DatabaseManager:
         
         return False
 
+    def _match_company(self, experience_list: List[Dict[str, Any]], search_company: str) -> Tuple[bool, float]:
+        """
+        Check if any of the candidate's experience companies match the search terms
+        Returns (matches, recency_score) where recency_score is higher for more recent positions
+        """
+        if not search_company or not search_company.strip():
+            return True, 1.0  # No company filter means match all with neutral score
+        
+        search_company_lower = search_company.lower()
+        best_recency_score = 0.0
+        
+        for i, exp in enumerate(experience_list):
+            company = exp.get('company', '').lower()
+            
+            # Check if company matches (flexible matching)
+            if (search_company_lower in company or 
+                company in search_company_lower or
+                any(word in company for word in search_company_lower.split() if len(word) > 2)):
+                
+                # Calculate recency score (most recent gets highest score)
+                # First position (index 0) gets 1.0, second gets 0.8, third gets 0.6, etc.
+                recency_score = max(0.1, 1.0 - (i * 0.2))
+                
+                # Give extra bonus for current position (index 0)
+                if i == 0:
+                    recency_score += 0.5
+                
+                best_recency_score = max(best_recency_score, recency_score)
+        
+        return best_recency_score > 0, best_recency_score
 
+    def _match_comments(self, candidate: Dict[str, Any], search_comments: str) -> bool:
+        """
+        Check if candidate's comments match the search terms
+        """
+        if not search_comments or not search_comments.strip():
+            return True  # No comments filter means match all
+        
+        search_lower = search_comments.lower()
+        candidate_comments = candidate.get('comments', '').lower()
+        
+        # Parse search terms (comma-separated or space-separated)
+        search_terms = []
+        if ',' in search_comments:
+            search_terms = [term.strip().lower() for term in search_comments.split(',') if term.strip()]
+        else:
+            search_terms = [term.strip().lower() for term in search_comments.split() if len(term.strip()) > 2]
+        
+        if not search_terms:
+            return search_lower in candidate_comments
+        
+        # Check if ANY search term appears in comments
+        for term in search_terms:
+            if term in candidate_comments:
+                return True
+        
+        return False
 
     def _ensure_backup_container_exists(self):
         """Ensure backup container exists in blob storage"""
@@ -111,9 +167,9 @@ class DatabaseManager:
                 INSERT INTO candidates (
                     name, current_role, email, phone, notice_period, current_salary,
                     industry, desired_salary, highest_qualification, experience,
-                    skills, qualifications, achievements, special_skills,
+                    skills, qualifications, achievements, special_skills, comments,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 candidate_data.get('name'),
                 candidate_data.get('current_role'),
@@ -129,6 +185,7 @@ class DatabaseManager:
                 json.dumps(candidate_data.get('qualifications', [])),
                 json.dumps(candidate_data.get('achievements', [])),
                 candidate_data.get('special_skills'),
+                candidate_data.get('comments', ''),  # New comments field
                 datetime.now(),
                 datetime.now()
             ))
@@ -179,7 +236,7 @@ class DatabaseManager:
                     current_salary = ?, industry = ?, desired_salary = ?,
                     highest_qualification = ?, experience = ?, skills = ?,
                     qualifications = ?, achievements = ?, special_skills = ?,
-                    updated_at = ?
+                    comments = ?, updated_at = ?
                 WHERE email = ?
             """, (
                 candidate_data.get('name'),
@@ -195,6 +252,7 @@ class DatabaseManager:
                 json.dumps(candidate_data.get('qualifications', [])),
                 json.dumps(candidate_data.get('achievements', [])),
                 candidate_data.get('special_skills'),
+                candidate_data.get('comments', ''),  # New comments field
                 datetime.now(),
                 email
             ))
@@ -281,7 +339,7 @@ class DatabaseManager:
         return False
 
     def search_candidates(self, search_criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Search candidates based on criteria with enhanced skills search and fixed responsibilities handling"""
+        """Search candidates based on criteria with enhanced skills search, company matching, and comments search"""
         try:
             conn = self.blob_db.get_connection()
             conn.row_factory = sqlite3.Row
@@ -298,7 +356,7 @@ class DatabaseManager:
             for field, value in search_criteria.items():
                 if value and value != "":
                     # Skip fields that need special handling
-                    if field in ['experience_years', 'skills', 'responsibilities', 'qualifications']:
+                    if field in ['experience_years', 'skills', 'responsibilities', 'qualifications', 'company', 'comments']:
                         continue  # Handle these separately after getting all candidates
                     elif field in direct_search_fields:
                         # Make searches case-insensitive for direct database columns
@@ -317,6 +375,11 @@ class DatabaseManager:
             skills_search = search_criteria.get('skills', '')
             responsibilities_search = search_criteria.get('responsibilities', '')
             qualifications_search = search_criteria.get('qualifications', '')
+            company_search = search_criteria.get('company', '')
+            comments_search = search_criteria.get('comments', '')  # New comments search
+            
+            # Store company match scores for sorting
+            candidates_with_scores = []
             
             for row in rows:
                 candidate = dict(row)
@@ -336,18 +399,38 @@ class DatabaseManager:
                 if not self._match_skills(candidate['skills'], skills_search):
                     continue
                 
-                # NEW: Handle responsibilities search (search within experience JSON)
+                # Handle responsibilities search (search within experience JSON)
                 if responsibilities_search and not self._match_responsibilities(candidate['experience'], responsibilities_search):
                     continue
                 
-                # NEW: Handle qualifications search (search within qualifications JSON and highest_qualification)
+                # Handle qualifications search (search within qualifications JSON and highest_qualification)
                 if qualifications_search and not self._match_qualifications(candidate, qualifications_search):
                     continue
                 
-                candidates.append(candidate)
+                # Handle comments search
+                if comments_search and not self._match_comments(candidate, comments_search):
+                    continue
+                
+                # NEW: Handle company search with recency scoring
+                company_matches = True
+                company_score = 1.0  # Default score for no company filter
+                
+                if company_search:
+                    company_matches, company_score = self._match_company(candidate['experience'], company_search)
+                    if not company_matches:
+                        continue
+                
+                # Add company score to candidate for sorting
+                candidate['company_recency_score'] = company_score
+                candidates_with_scores.append(candidate)
+            
+            # Sort by company recency score if company search was performed
+            if company_search:
+                candidates_with_scores.sort(key=lambda x: x.get('company_recency_score', 0), reverse=True)
+                logging.info(f"Company search performed for '{company_search}' - results sorted by recency")
             
             conn.close()
-            return candidates
+            return candidates_with_scores
             
         except Exception as e:
             logging.error(f"Error searching candidates: {str(e)}")

@@ -66,26 +66,26 @@ class CVProcessor:
             return None
         
         try:
-            prompt = self._create_extraction_prompt(cv_text)
+            prompt = self._create_enhanced_extraction_prompt(cv_text)
             
             response = self.client.chat.completions.create(
                 model=Config.AZURE_OPENAI_DEPLOYMENT_NAME,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert HR assistant that extracts structured information from CV/resume text. Always respond with valid JSON format. Pay special attention to extracting ALL work experience entries, not just the most recent one."
+                        "content": "You are an expert HR assistant that extracts comprehensive structured information from CV/resume text. You must extract ALL available information and return complete, valid JSON. Be thorough and extract every detail mentioned in the CV."
                     },
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-                temperature=0.1,
-                max_tokens=3000  # Increased token limit for comprehensive extraction
+                temperature=0.1
             )
             
             # Parse the response
             content = response.choices[0].message.content
+            logging.info(f"OpenAI response received: {len(content)} characters")
             
             # Extract JSON from response (in case there's extra text)
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
@@ -93,102 +93,378 @@ class CVProcessor:
                 json_str = json_match.group()
                 candidate_data = json.loads(json_str)
                 
-                # Validate and clean the data
-                cleaned_data = self._validate_and_clean_data(candidate_data)
+                # Enhanced validation and cleaning
+                cleaned_data = self._enhanced_validate_and_clean_data(candidate_data)
                 
                 logging.info("Successfully processed CV with OpenAI")
+                logging.info(f"Extracted fields: {list(cleaned_data.keys())}")
+                
+                # Log extraction summary for debugging
+                self._log_extraction_summary(cleaned_data)
+                
                 return cleaned_data
             else:
                 logging.error("No valid JSON found in OpenAI response")
+                logging.debug(f"OpenAI response content: {content}")
                 return None
                 
         except json.JSONDecodeError as e:
             logging.error(f"JSON decode error: {str(e)}")
+            logging.debug(f"Failed JSON content: {content}")
             return None
         except Exception as e:
             logging.error(f"Error processing CV with OpenAI: {str(e)}")
             return None
     
-    def _create_extraction_prompt(self, cv_text: str) -> str:
+    def _create_enhanced_extraction_prompt(self, cv_text: str) -> str:
         """Create enhanced prompt for comprehensive CV data extraction"""
         return f"""
-        Extract the following information from this CV/resume text and return it as a JSON object.
+Extract ALL information from this CV/resume and return it as a comprehensive JSON object. 
+Extract EVERY detail mentioned, no matter how small. Be thorough and complete.
+
+CRITICAL: You must extract information for ALL these fields. If a field is not explicitly mentioned, try to infer it from context or set it as empty string/array.
+
+Required JSON structure:
+{{
+    "name": "Full name of the candidate",
+    "current_role": "Current job title/position",
+    "email": "Email address", 
+    "phone": "Phone number (with country code if available)",
+    "notice_period": "Notice period (extract any mention of availability, notice period, or when they can start)",
+    "current_salary": "Current salary (extract any salary information mentioned)",
+    "industry": "Industry/sector (infer from experience if not explicitly stated)",
+    "desired_salary": "Desired/expected salary (extract any salary expectations)",
+    "highest_qualification": "Highest educational qualification achieved",
+    "special_skills": "Any special skills, certifications, languages, or unique abilities mentioned",
+    
+    "experience": [
+        {{
+            "position": "Job title/role name",
+            "company": "Company/organization name", 
+            "years": "Duration in role (e.g., '2020-2023', '3 years', 'Jan 2020 - Present')",
+            "location": "Work location if mentioned",
+            "employment_type": "Full-time/Part-time/Contract/Internship/Freelance/Consultant",
+            "team_size": "Team size managed or worked with",
+            "reporting_to": "Who they reported to (manager title/name)",
+            "responsibilities": [
+                "Detailed responsibility 1 - extract EXACT text from CV",
+                "Detailed responsibility 2 - include specific tools, processes, methodologies", 
+                "Detailed responsibility 3 - capture quantified results and scope"
+            ],
+            "achievements": [
+                "Specific achievement 1 with measurable results",
+                "Awards, recognitions, or accomplishments in this role"
+            ],
+            "technologies": [
+                "Technology 1", "Tool 1", "Software 1", "Programming language 1"
+            ]
+        }}
+    ],
+    
+    "skills": [
+        {{
+            "skill": "Skill name",
+            "proficiency": 1-5 (1=Beginner, 2=Basic, 3=Intermediate, 4=Advanced, 5=Expert)
+        }}
+    ],
+    
+    "qualifications": [
+        {{
+            "qualification": "Degree/certification name",
+            "institution": "Educational institution/university",
+            "year": "Year of completion", 
+            "grade": "Grade/GPA/result if mentioned"
+        }}
+    ],
+    
+    "achievements": [
+        "General achievement/award/recognition 1",
+        "Publication, patent, or significant accomplishment 2",
+        "Professional certification or notable project 3"
+    ]
+}}
+
+EXTRACTION GUIDELINES:
+1. EXTRACT ALL WORK EXPERIENCE - scan the entire CV for every job, internship, project role
+2. CAPTURE COMPLETE DETAILS - for each role, extract every responsibility, achievement, and technology mentioned
+3. INFER MISSING INFORMATION - if industry isn't stated, infer from job titles/companies
+4. EXTRACT ALL SKILLS - from dedicated skills sections AND from job descriptions
+5. GET ALL EDUCATION - degrees, certifications, courses, training programs
+6. FIND ALL ACHIEVEMENTS - awards, recognitions, publications, patents, notable projects
+7. EXTRACT CONTACT INFO - phone numbers, email addresses, LinkedIn profiles
+8. CAPTURE SALARY INFO - any mention of current salary, expectations, or compensation
+9. GET AVAILABILITY INFO - notice periods, availability dates, visa status
+
+PROFICIENCY SCORING GUIDE:
+- 5 (Expert): 5+ years experience, leading others, architectural decisions
+- 4 (Advanced): 3-5 years experience, complex projects, mentoring others  
+- 3 (Intermediate): 1-3 years experience, independent work
+- 2 (Basic): <1 year experience, guided work
+- 1 (Beginner): Learning or just started
+
+IMPORTANT: 
+- Extract responsibilities EXACTLY as written in the CV
+- Include ALL technologies, tools, frameworks, languages mentioned
+- Capture quantified achievements (percentages, amounts, timeframes)
+- If multiple roles at same company, create separate experience entries
+- Extract soft skills, technical skills, and domain expertise
+- Include internships, part-time work, freelance projects
+- Capture all educational background including certifications
+
+CV Text:
+{cv_text}
+
+Return ONLY the JSON object, no additional text:
+"""
+    
+    def _enhanced_validate_and_clean_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Enhanced validation and cleaning of extracted candidate data"""
+        cleaned_data = {}
         
-        IMPORTANT: Extract ALL work experience entries from the CV, not just the most recent one. 
-        Look through the entire CV text to capture the complete employment history.
-
-        Required fields:
-        - name: Full name of the candidate
-        - current_role: Current job title/position
-        - email: Email address
-        - phone: Phone number
-        - notice_period: Notice period (if mentioned)
-        - current_salary: Current salary (if mentioned)
-        - industry: Industry/sector
-        - desired_salary: Desired salary (if mentioned)
-        - highest_qualification: Highest educational qualification
-        - special_skills: Any special skills or certifications
-
-        Array fields (return as arrays of objects):
-        - experience: Array of ALL work experience objects with fields:
-          - position: Job title/role name
-          - company: Company/organization name
-          - years: Duration or years in role (e.g., "2020-2023", "3 years", "Jan 2020 - Present")
-          - location: Work location (city, country) if mentioned
-          - employment_type: Type of employment (Full-time, Part-time, Contract, Internship, etc.) if mentioned
-          - responsibilities: Array of DETAILED and COMPREHENSIVE responsibilities, duties, and day-to-day tasks. EXTRACT AS MUCH DETAIL AS POSSIBLE from the CV for each responsibility. Include specific processes, methodologies, tools used, scope of work, and detailed descriptions of what they actually did in their role.
-          - achievements: Array of specific achievements, accomplishments, and measurable results in this role
-          - technologies: Array of technologies, tools, or software used in this role
-          - team_size: Team size managed or worked with (if mentioned)
-          - reporting_to: Who they reported to (if mentioned)
+        # String fields - more lenient cleaning
+        string_fields = [
+            'name', 'current_role', 'email', 'phone', 'notice_period',
+            'current_salary', 'industry', 'desired_salary', 'highest_qualification',
+            'special_skills'
+        ]
         
-        - skills: Array of skill objects with fields:
-          - skill: Skill name
-          - proficiency: Proficiency level (1-5, where 1 is beginner and 5 is expert)
+        for field in string_fields:
+            value = data.get(field, '')
+            if isinstance(value, (str, int, float)):
+                cleaned_data[field] = str(value).strip()
+            else:
+                cleaned_data[field] = ''
         
-        - qualifications: Array of qualification objects with fields:
-          - qualification: Degree/certification name
-          - institution: Educational institution
-          - year: Year of completion
-          - grade: Grade/GPA if mentioned
+        # Enhanced experience validation
+        cleaned_data['experience'] = self._enhanced_validate_experience(data.get('experience', []))
         
-        - achievements: Array of general achievement strings (awards, recognitions, publications, etc.)
-
-        Extraction Guidelines:
-        1. EXTRACT ALL WORK EXPERIENCE: Don't stop at the first job - scan the entire CV for all employment history
-        2. For each work experience, capture as much detail as possible from the CV
-        3. RESPONSIBILITIES - EXTRACT COMPREHENSIVE DETAILS: For responsibilities, don't just list generic duties. Extract detailed descriptions including:
-           - Specific processes and methodologies used
-           - Detailed scope of work and responsibilities
-           - Exact tools, systems, and technologies used for each task
-           - Quantified aspects (e.g., "managed database of 10,000+ records", "processed 50+ applications daily")
-           - Specific workflows and procedures followed
-           - Cross-functional collaboration details
-           - Problem-solving approaches used
-           - Quality standards maintained
-           - Documentation and reporting responsibilities
-           - Training and mentoring activities
-           - Project management aspects
-           - Customer/stakeholder interaction details
-        4. Break down job descriptions into specific, detailed responsibilities (what they did day-to-day with full context)
-        5. Separate achievements from responsibilities (measurable results, awards, improvements, etc.)
-        6. If technologies/tools are mentioned for a specific role, include them
-        7. If team size or reporting structure is mentioned, capture it
-        8. Look for keywords like "Previous Experience", "Employment History", "Career", "Professional Experience"
-        9. Include internships, part-time jobs, freelance work, and contract positions
-        10. For skills proficiency, make educated guesses based on:
-           - Years of experience with the skill
-           - Level of responsibility using the skill
-           - Complexity of projects mentioned
-           - Certifications or advanced usage indicators
-        11. If information is not available, use empty string or empty array
-        12. PRIORITIZE DETAIL EXTRACTION: Always prefer detailed, specific descriptions over generic ones
-
-        CV Text:
-        {cv_text}
-
-        JSON Response:
-        """
+        # Enhanced skills validation  
+        cleaned_data['skills'] = self._enhanced_validate_skills(data.get('skills', []))
+        
+        # Enhanced qualifications validation
+        cleaned_data['qualifications'] = self._enhanced_validate_qualifications(data.get('qualifications', []))
+        
+        # Enhanced achievements validation
+        cleaned_data['achievements'] = self._enhanced_validate_achievements(data.get('achievements', []))
+        
+        return cleaned_data
+    
+    def _enhanced_validate_experience(self, experience: List[Any]) -> List[Dict[str, Any]]:
+        """Enhanced validation and cleaning of experience data"""
+        validated_exp = []
+        
+        if not isinstance(experience, list):
+            logging.warning("Experience is not a list, attempting to convert")
+            if isinstance(experience, dict):
+                experience = [experience]
+            else:
+                return []
+        
+        for i, exp in enumerate(experience):
+            if not isinstance(exp, dict):
+                logging.warning(f"Experience entry {i} is not a dict: {type(exp)}")
+                continue
+                
+            clean_exp = {
+                'position': self._safe_string_extract(exp.get('position', '')),
+                'company': self._safe_string_extract(exp.get('company', '')),
+                'years': self._safe_string_extract(exp.get('years', '')),
+                'location': self._safe_string_extract(exp.get('location', '')),
+                'employment_type': self._safe_string_extract(exp.get('employment_type', '')),
+                'team_size': self._safe_string_extract(exp.get('team_size', '')),
+                'reporting_to': self._safe_string_extract(exp.get('reporting_to', '')),
+                'responsibilities': [],
+                'achievements': [],
+                'technologies': []
+            }
+            
+            # Enhanced responsibility cleaning
+            responsibilities = exp.get('responsibilities', [])
+            if isinstance(responsibilities, list):
+                clean_exp['responsibilities'] = [
+                    self._safe_string_extract(r) for r in responsibilities 
+                    if self._safe_string_extract(r)
+                ]
+            elif isinstance(responsibilities, str):
+                # Handle case where responsibilities is a single string
+                clean_exp['responsibilities'] = [self._safe_string_extract(responsibilities)] if responsibilities.strip() else []
+            
+            # Enhanced achievements cleaning
+            achievements = exp.get('achievements', [])
+            if isinstance(achievements, list):
+                clean_exp['achievements'] = [
+                    self._safe_string_extract(a) for a in achievements 
+                    if self._safe_string_extract(a)
+                ]
+            elif isinstance(achievements, str):
+                clean_exp['achievements'] = [self._safe_string_extract(achievements)] if achievements.strip() else []
+            
+            # Enhanced technologies cleaning
+            technologies = exp.get('technologies', [])
+            if isinstance(technologies, list):
+                clean_exp['technologies'] = [
+                    self._safe_string_extract(t) for t in technologies 
+                    if self._safe_string_extract(t)
+                ]
+            elif isinstance(technologies, str):
+                # Handle comma-separated technologies string
+                tech_list = [t.strip() for t in technologies.split(',') if t.strip()]
+                clean_exp['technologies'] = tech_list
+            
+            # Only add if has meaningful content
+            if (clean_exp['position'] or clean_exp['company'] or 
+                clean_exp['responsibilities'] or clean_exp['achievements']):
+                validated_exp.append(clean_exp)
+                logging.info(f"Added experience: {clean_exp['position']} at {clean_exp['company']}")
+        
+        logging.info(f"Validated {len(validated_exp)} experience entries")
+        return validated_exp
+    
+    def _enhanced_validate_skills(self, skills: List[Any]) -> List[Dict[str, Any]]:
+        """Enhanced validation and cleaning of skills data"""
+        validated_skills = []
+        
+        if not isinstance(skills, list):
+            logging.warning("Skills is not a list, attempting to convert")
+            return []
+        
+        for i, skill in enumerate(skills):
+            if isinstance(skill, dict):
+                skill_name = self._safe_string_extract(skill.get('skill', ''))
+                if skill_name:
+                    clean_skill = {
+                        'skill': skill_name,
+                        'proficiency': self._enhanced_validate_proficiency(skill.get('proficiency', 3))
+                    }
+                    validated_skills.append(clean_skill)
+                    
+            elif isinstance(skill, str) and skill.strip():
+                # Handle case where skills are just strings
+                validated_skills.append({
+                    'skill': skill.strip(),
+                    'proficiency': 3  # Default proficiency
+                })
+            else:
+                logging.warning(f"Skipping invalid skill entry {i}: {skill}")
+        
+        logging.info(f"Validated {len(validated_skills)} skills")
+        return validated_skills
+    
+    def _enhanced_validate_qualifications(self, qualifications: List[Any]) -> List[Dict[str, Any]]:
+        """Enhanced validation and cleaning of qualifications data"""
+        validated_quals = []
+        
+        if not isinstance(qualifications, list):
+            logging.warning("Qualifications is not a list, attempting to convert")
+            return []
+        
+        for i, qual in enumerate(qualifications):
+            if isinstance(qual, dict):
+                qualification_name = self._safe_string_extract(qual.get('qualification', ''))
+                if qualification_name:
+                    clean_qual = {
+                        'qualification': qualification_name,
+                        'institution': self._safe_string_extract(qual.get('institution', '')),
+                        'year': self._safe_string_extract(qual.get('year', '')),
+                        'grade': self._safe_string_extract(qual.get('grade', ''))
+                    }
+                    validated_quals.append(clean_qual)
+            else:
+                logging.warning(f"Skipping invalid qualification entry {i}: {qual}")
+        
+        logging.info(f"Validated {len(validated_quals)} qualifications")
+        return validated_quals
+    
+    def _enhanced_validate_achievements(self, achievements: List[Any]) -> List[str]:
+        """Enhanced validation and cleaning of achievements data"""
+        validated_achievements = []
+        
+        if not isinstance(achievements, list):
+            logging.warning("Achievements is not a list, attempting to convert")
+            if isinstance(achievements, str):
+                return [achievements.strip()] if achievements.strip() else []
+            return []
+        
+        for achievement in achievements:
+            if isinstance(achievement, str) and achievement.strip():
+                validated_achievements.append(achievement.strip())
+            elif isinstance(achievement, dict) and achievement.get('achievement'):
+                validated_achievements.append(str(achievement['achievement']).strip())
+            else:
+                # Try to convert to string
+                try:
+                    ach_str = str(achievement).strip()
+                    if ach_str and ach_str != 'None':
+                        validated_achievements.append(ach_str)
+                except:
+                    continue
+        
+        logging.info(f"Validated {len(validated_achievements)} achievements")
+        return validated_achievements
+    
+    def _safe_string_extract(self, value: Any) -> str:
+        """Safely extract string value from any input"""
+        if value is None:
+            return ''
+        if isinstance(value, str):
+            return value.strip()
+        try:
+            return str(value).strip()
+        except:
+            return ''
+    
+    def _enhanced_validate_proficiency(self, proficiency: Any) -> int:
+        """Enhanced proficiency level validation (1-5)"""
+        try:
+            if isinstance(proficiency, str):
+                # Try to extract number from string
+                numbers = re.findall(r'\d+', proficiency)
+                if numbers:
+                    level = int(numbers[0])
+                else:
+                    # Try to map common proficiency words
+                    proficiency_lower = proficiency.lower()
+                    if any(word in proficiency_lower for word in ['expert', 'advanced', 'senior']):
+                        level = 5
+                    elif any(word in proficiency_lower for word in ['intermediate', 'moderate']):
+                        level = 3
+                    elif any(word in proficiency_lower for word in ['basic', 'beginner', 'junior']):
+                        level = 2
+                    else:
+                        level = 3
+            else:
+                level = int(proficiency)
+            
+            return max(1, min(5, level))  # Clamp between 1 and 5
+        except (ValueError, TypeError):
+            return 3  # Default to intermediate
+    
+    def _log_extraction_summary(self, candidate_data: Dict[str, Any]):
+        """Log summary of extracted data for debugging"""
+        logging.info("=== CV EXTRACTION SUMMARY ===")
+        logging.info(f"Name: {candidate_data.get('name', 'N/A')}")
+        logging.info(f"Email: {candidate_data.get('email', 'N/A')}")
+        logging.info(f"Current Role: {candidate_data.get('current_role', 'N/A')}")
+        logging.info(f"Industry: {candidate_data.get('industry', 'N/A')}")
+        logging.info(f"Experience Entries: {len(candidate_data.get('experience', []))}")
+        logging.info(f"Skills Count: {len(candidate_data.get('skills', []))}")
+        logging.info(f"Qualifications Count: {len(candidate_data.get('qualifications', []))}")
+        logging.info(f"Achievements Count: {len(candidate_data.get('achievements', []))}")
+        
+        # Log experience details
+        for i, exp in enumerate(candidate_data.get('experience', [])):
+            logging.info(f"Experience {i+1}: {exp.get('position', 'N/A')} at {exp.get('company', 'N/A')}")
+            logging.info(f"  - Responsibilities: {len(exp.get('responsibilities', []))}")
+            logging.info(f"  - Achievements: {len(exp.get('achievements', []))}")
+            logging.info(f"  - Technologies: {len(exp.get('technologies', []))}")
+        
+        # Log skills
+        skills = candidate_data.get('skills', [])
+        if skills:
+            skill_names = [skill.get('skill', 'N/A') for skill in skills[:5]]
+            logging.info(f"Top 5 Skills: {', '.join(skill_names)}")
+        
+        logging.info("=== END EXTRACTION SUMMARY ===")
     
     def extract_job_requirements(self, job_description: str) -> Optional[Dict[str, Any]]:
         """Extract requirements from job description using OpenAI"""
@@ -211,8 +487,7 @@ class CVProcessor:
                         "content": prompt
                     }
                 ],
-                temperature=0.1,
-                max_tokens=1000
+                temperature=0.1
             )
             
             content = response.choices[0].message.content
@@ -252,6 +527,8 @@ class CVProcessor:
         - location: Job location
         - salary_range: Salary range if mentioned
         - key_responsibilities: Array of main job responsibilities (strings)
+        - technologies: Array of specific technologies/tools mentioned (strings)
+        - seniority_level: Seniority level (entry, junior, mid, senior, lead, etc.)
 
         Instructions:
         1. Extract only explicit requirements, don't assume
@@ -265,127 +542,6 @@ class CVProcessor:
 
         JSON Response:
         """
-    
-    def _validate_and_clean_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate and clean extracted candidate data"""
-        cleaned_data = {}
-        
-        # String fields
-        string_fields = [
-            'name', 'current_role', 'email', 'phone', 'notice_period',
-            'current_salary', 'industry', 'desired_salary', 'highest_qualification',
-            'special_skills'
-        ]
-        
-        for field in string_fields:
-            cleaned_data[field] = str(data.get(field, '')).strip()
-        
-        # Array fields with validation
-        cleaned_data['experience'] = self._validate_experience(data.get('experience', []))
-        cleaned_data['skills'] = self._validate_skills(data.get('skills', []))
-        cleaned_data['qualifications'] = self._validate_qualifications(data.get('qualifications', []))
-        cleaned_data['achievements'] = self._validate_achievements(data.get('achievements', []))
-        
-        return cleaned_data
-    
-    def _validate_experience(self, experience: List[Any]) -> List[Dict[str, Any]]:
-        """Validate and clean enhanced experience data"""
-        validated_exp = []
-        
-        for exp in experience:
-            if isinstance(exp, dict):
-                clean_exp = {
-                    'position': str(exp.get('position', '')).strip(),
-                    'company': str(exp.get('company', '')).strip(),
-                    'years': str(exp.get('years', '')).strip(),
-                    'location': str(exp.get('location', '')).strip(),
-                    'employment_type': str(exp.get('employment_type', '')).strip(),
-                    'team_size': str(exp.get('team_size', '')).strip(),
-                    'reporting_to': str(exp.get('reporting_to', '')).strip(),
-                    'responsibilities': [],
-                    'achievements': [],
-                    'technologies': []
-                }
-                
-                # Clean responsibilities
-                responsibilities = exp.get('responsibilities', [])
-                if isinstance(responsibilities, list):
-                    clean_exp['responsibilities'] = [str(r).strip() for r in responsibilities if str(r).strip()]
-                
-                # Clean achievements
-                achievements = exp.get('achievements', [])
-                if isinstance(achievements, list):
-                    clean_exp['achievements'] = [str(a).strip() for a in achievements if str(a).strip()]
-                
-                # Clean technologies
-                technologies = exp.get('technologies', [])
-                if isinstance(technologies, list):
-                    clean_exp['technologies'] = [str(t).strip() for t in technologies if str(t).strip()]
-                
-                if clean_exp['position'] or clean_exp['company']:
-                    validated_exp.append(clean_exp)
-        
-        return validated_exp
-    
-    def _validate_skills(self, skills: List[Any]) -> List[Dict[str, Any]]:
-        """Validate and clean skills data"""
-        validated_skills = []
-        
-        for skill in skills:
-            if isinstance(skill, dict):
-                clean_skill = {
-                    'skill': str(skill.get('skill', '')).strip(),
-                    'proficiency': self._validate_proficiency(skill.get('proficiency', 3))
-                }
-                
-                if clean_skill['skill']:
-                    validated_skills.append(clean_skill)
-            elif isinstance(skill, str) and skill.strip():
-                # Handle case where skills are just strings
-                validated_skills.append({
-                    'skill': skill.strip(),
-                    'proficiency': 3  # Default proficiency
-                })
-        
-        return validated_skills
-    
-    def _validate_proficiency(self, proficiency: Any) -> int:
-        """Validate proficiency level (1-5)"""
-        try:
-            level = int(proficiency)
-            return max(1, min(5, level))  # Clamp between 1 and 5
-        except (ValueError, TypeError):
-            return 3  # Default to intermediate
-    
-    def _validate_qualifications(self, qualifications: List[Any]) -> List[Dict[str, Any]]:
-        """Validate and clean qualifications data"""
-        validated_quals = []
-        
-        for qual in qualifications:
-            if isinstance(qual, dict):
-                clean_qual = {
-                    'qualification': str(qual.get('qualification', '')).strip(),
-                    'institution': str(qual.get('institution', '')).strip(),
-                    'year': str(qual.get('year', '')).strip(),
-                    'grade': str(qual.get('grade', '')).strip()
-                }
-                
-                if clean_qual['qualification']:
-                    validated_quals.append(clean_qual)
-        
-        return validated_quals
-    
-    def _validate_achievements(self, achievements: List[Any]) -> List[str]:
-        """Validate and clean achievements data"""
-        validated_achievements = []
-        
-        for achievement in achievements:
-            if isinstance(achievement, str) and achievement.strip():
-                validated_achievements.append(achievement.strip())
-            elif isinstance(achievement, dict) and achievement.get('achievement'):
-                validated_achievements.append(str(achievement['achievement']).strip())
-        
-        return validated_achievements
     
     def extract_candidate_summary(self, candidate_data: Dict[str, Any]) -> str:
         """Generate a summary of candidate profile"""

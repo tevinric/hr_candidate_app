@@ -44,11 +44,11 @@ def initialize_session_state():
     if 'selected_candidate' not in st.session_state:
         st.session_state.selected_candidate = None
     
-    # Form data session states for candidate editing
+    # Form data session states for candidate editing (including comments)
     edit_fields = [
         'edit_name', 'edit_email', 'edit_phone', 'edit_current_role', 'edit_industry',
         'edit_notice_period', 'edit_current_salary', 'edit_desired_salary',
-        'edit_highest_qualification', 'edit_special_skills'
+        'edit_highest_qualification', 'edit_special_skills', 'edit_comments'  # Added comments
     ]
     
     for field in edit_fields:
@@ -61,11 +61,11 @@ def initialize_session_state():
         if field not in st.session_state:
             st.session_state[field] = []
     
-    # Form data session states for CV upload
+    # Form data session states for CV upload (including comments)
     form_fields = [
         'form_name', 'form_email', 'form_phone', 'form_current_role', 'form_industry',
         'form_notice_period', 'form_current_salary', 'form_desired_salary',
-        'form_highest_qualification', 'form_special_skills'
+        'form_highest_qualification', 'form_special_skills', 'form_comments'  # Added comments
     ]
     
     for field in form_fields:
@@ -185,18 +185,51 @@ def reset_user_session():
     logging.info("✅ User session reset - database will refresh from cloud on next login")
 
 def clear_form_session_state():
-    """Clear form-related session state"""
+    """Clear form-related session state including comments"""
     keys_to_clear = [
         'qualifications_list', 'skills_list', 'experience_list', 'achievements_list',
         'extracted_data', 'cv_processed', 'form_name', 'form_email', 'form_phone',
         'form_current_role', 'form_industry', 'form_notice_period', 'form_current_salary',
         'form_desired_salary', 'form_highest_qualification', 'form_special_skills',
-        'manual_entry_mode'
+        'form_comments', 'manual_entry_mode'  # Added form_comments
     ]
     
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
+
+def clear_all_candidate_state():
+    """Clear all candidate-related session state for adding a new candidate"""
+    logging.info("🗑️ Clearing all candidate state for new candidate")
+    
+    # Clear form data
+    clear_form_session_state()
+    
+    # Clear overwrite dialog state
+    clear_overwrite_dialog_state()
+    
+    # Clear CV processing state
+    st.session_state.cv_processed = False
+    st.session_state.extracted_data = None
+    st.session_state.manual_entry_mode = False
+    
+    # Reset lists to empty
+    st.session_state.qualifications_list = []
+    st.session_state.skills_list = []
+    st.session_state.experience_list = []
+    st.session_state.achievements_list = []
+    
+    # Reset form fields to empty (including comments)
+    form_fields = [
+        'form_name', 'form_email', 'form_phone', 'form_current_role', 'form_industry',
+        'form_notice_period', 'form_current_salary', 'form_desired_salary',
+        'form_highest_qualification', 'form_special_skills', 'form_comments'  # Added form_comments
+    ]
+    
+    for field in form_fields:
+        st.session_state[field] = ""
+    
+    logging.info("✅ All candidate state cleared - ready for new candidate")
 
 def clear_overwrite_dialog_state():
     """Clear overwrite dialog state"""
