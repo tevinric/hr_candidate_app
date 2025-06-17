@@ -5,7 +5,7 @@ import logging
 
 def validate_candidate_data(candidate_data: Dict[str, Any]) -> tuple[bool, List[str]]:
     """
-    Validate candidate data before database insertion with enhanced experience validation
+    Validate candidate data before database insertion with enhanced experience validation and comments
     Returns (is_valid, error_messages)
     """
     errors = []
@@ -25,6 +25,11 @@ def validate_candidate_data(candidate_data: Dict[str, Any]) -> tuple[bool, List[
     phone = candidate_data.get('phone', '').strip()
     if phone and not is_valid_phone(phone):
         errors.append("Invalid phone number format")
+    
+    # Comments validation (optional field, just check length if provided)
+    comments = candidate_data.get('comments', '')
+    if comments and len(comments) > 5000:  # Reasonable limit for comments
+        errors.append("Comments field is too long (maximum 5000 characters)")
     
     # Enhanced Experience validation
     experience = candidate_data.get('experience', [])
@@ -625,3 +630,54 @@ def safe_datetime_parse(dt_str: str) -> Optional[datetime]:
     except ValueError:
         logging.warning(f"Could not parse datetime: {dt_str}")
         return None
+    
+
+# Helper function to validate comments specifically (can be used separately)
+def validate_comments(comments: str) -> tuple[bool, str]:
+    """
+    Validate comments field specifically
+    Returns (is_valid, error_message)
+    """
+    if not comments:
+        return True, ""  # Comments are optional
+    
+    if not isinstance(comments, str):
+        return False, "Comments must be text"
+    
+    # Check length
+    max_length = 5000
+    if len(comments) > max_length:
+        return False, f"Comments field is too long (maximum {max_length} characters, current: {len(comments)})"
+    
+    # Check for potentially harmful content (basic check)
+    if any(char in comments for char in ['<script', '<iframe', 'javascript:']):
+        return False, "Comments contain potentially harmful content"
+    
+    return True, ""
+
+# Helper function to sanitize comments for safe storage
+def sanitize_comments(comments: str) -> str:
+    """
+    Sanitize comments for safe storage and display
+    """
+    if not comments:
+        return ""
+    
+    # Remove potentially harmful content
+    import re
+    
+    # Remove HTML tags
+    comments = re.sub(r'<[^>]+>', '', comments)
+    
+    # Remove script-like content
+    comments = re.sub(r'javascript:', '', comments, flags=re.IGNORECASE)
+    
+    # Clean up extra whitespace
+    comments = re.sub(r'\s+', ' ', comments).strip()
+    
+    # Truncate if too long
+    max_length = 5000
+    if len(comments) > max_length:
+        comments = comments[:max_length] + "..."
+    
+    return comments

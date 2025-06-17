@@ -81,6 +81,13 @@ def manual_search():
                 value=cached.get('qualifications', ''),
                 help="Search in education background and qualifications"
             )
+            # NEW: Comments search field
+            comments_search = st.text_area(
+                "Comments & Notes (keywords)", 
+                value=cached.get('comments', ''),
+                height=80,
+                help="Search through comments and notes added to candidate profiles. Enter keywords or phrases that should appear in the comments."
+            )
             experience_years = st.number_input(
                 "Minimum Experience Years", 
                 min_value=0, 
@@ -105,6 +112,7 @@ def manual_search():
             'skills': skills_search,
             'responsibilities': responsibilities_search,
             'qualifications': qualification_search,
+            'comments': comments_search,  # New comments search field
             'experience_years': experience_years,
             'notice_period': notice_period_search
         }
@@ -141,6 +149,9 @@ def manual_search():
                 if company_search:
                     st.info(f"🏢 Searching for candidates with experience at: {company_search}")
                 
+                if comments_search:
+                    st.info(f"📝 Searching in comments for: {comments_search}")
+                
                 # Show some debug info to help user understand results
                 with st.expander("🔍 Search Debug Info", expanded=False):
                     st.write("**Search criteria applied:**")
@@ -165,6 +176,11 @@ def manual_search():
                             for exp in top_candidate.get('experience', []):
                                 sample_resp.extend(exp.get('responsibilities', [])[:1])
                             st.write(f"• Sample responsibilities: {' | '.join(sample_resp[:3])}")
+                        
+                        if search_criteria.get('comments'):
+                            comments_preview = top_candidate.get('comments', '')[:100]
+                            if comments_preview:
+                                st.write(f"• Comments preview: {comments_preview}{'...' if len(top_candidate.get('comments', '')) > 100 else ''}")
             else:
                 st.warning("⚠️ No candidates found. Try broader search terms or check spelling.")
                 # Provide search suggestions
@@ -392,7 +408,7 @@ Example: We are looking for a Senior Data Scientist with experience in Python, m
     st.markdown('</div>', unsafe_allow_html=True)
 
 def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
-    """Enhanced relevance calculation for manual search with company matching and recency ranking"""
+    """Enhanced relevance calculation for manual search with comments matching"""
     score = 0
     total_criteria = 0
     
@@ -551,6 +567,23 @@ def calculate_enhanced_manual_search_relevance(candidate, search_criteria):
                 
                 # Much lower threshold - need at least 1 keyword to match OR 10% of keywords
                 if matched_keywords >= max(1, len(query_keywords) * 0.1):  # Only 10% needed!
+                    keyword_score = matched_keywords / len(query_keywords)
+                    score += keyword_score
+        
+        # NEW: Comments matching
+        if search_criteria.get('comments'):
+            total_criteria += 1
+            comments_query = search_criteria['comments'].lower()
+            candidate_comments = candidate.get('comments', '').lower()
+            
+            # FLEXIBLE keyword matching for comments
+            query_keywords = [word.strip() for word in comments_query.replace(',', ' ').split() if len(word.strip()) > 1]
+            
+            if query_keywords:
+                matched_keywords = sum(1 for keyword in query_keywords if keyword in candidate_comments)
+                
+                # Need at least 1 keyword to match OR 20% of keywords
+                if matched_keywords >= max(1, len(query_keywords) * 0.2):
                     keyword_score = matched_keywords / len(query_keywords)
                     score += keyword_score
         

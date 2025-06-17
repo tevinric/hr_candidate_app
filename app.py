@@ -214,11 +214,11 @@ def initialize_session_state():
     if 'selected_candidate' not in st.session_state:
         st.session_state.selected_candidate = None
     
-    # Form data session states for candidate editing
+    # Form data session states for candidate editing (including comments)
     edit_fields = [
         'edit_name', 'edit_email', 'edit_phone', 'edit_current_role', 'edit_industry',
         'edit_notice_period', 'edit_current_salary', 'edit_desired_salary',
-        'edit_highest_qualification', 'edit_special_skills'
+        'edit_highest_qualification', 'edit_special_skills', 'edit_comments'  # Added comments
     ]
     
     for field in edit_fields:
@@ -231,11 +231,11 @@ def initialize_session_state():
         if field not in st.session_state:
             st.session_state[field] = []
     
-    # Form data session states for CV upload
+    # Form data session states for CV upload (including comments)
     form_fields = [
         'form_name', 'form_email', 'form_phone', 'form_current_role', 'form_industry',
         'form_notice_period', 'form_current_salary', 'form_desired_salary',
-        'form_highest_qualification', 'form_special_skills'
+        'form_highest_qualification', 'form_special_skills', 'form_comments'  # Added comments
     ]
     
     for field in form_fields:
@@ -577,6 +577,19 @@ def show_candidate_edit_form():
     )
     st.markdown('</div>', unsafe_allow_html=True)
     
+    # Comments Section - NEW
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 📝 Comments & Notes")
+    st.session_state.edit_comments = st.text_area(
+        "Comments", 
+        value=st.session_state.edit_comments, 
+        height=120, 
+        key="edit_comments_input",
+        help="Add any additional notes, comments, or observations about this candidate",
+        placeholder="Enter any additional notes about the candidate, interview feedback, cultural fit observations, etc."
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
     # Update and Delete buttons
     st.markdown("---")
     col_submit1, col_submit2, col_submit3, col_submit4 = st.columns([2, 1, 1, 1])
@@ -880,7 +893,8 @@ def handle_candidate_update():
             'skills': clean_skills,
             'qualifications': clean_qualifications,
             'achievements': clean_achievements,
-            'special_skills': st.session_state.edit_special_skills
+            'special_skills': st.session_state.edit_special_skills,
+            'comments': st.session_state.edit_comments  # New comments field
         }
         
         # Update candidate in database with forced cloud sync
@@ -923,6 +937,7 @@ def initialize_edit_form_data(candidate):
     st.session_state.edit_desired_salary = candidate.get('desired_salary', '')
     st.session_state.edit_highest_qualification = candidate.get('highest_qualification', '')
     st.session_state.edit_special_skills = candidate.get('special_skills', '')
+    st.session_state.edit_comments = candidate.get('comments', '')  # New comments field
     
     # Initialize lists - make copies to avoid reference issues
     st.session_state.edit_qualifications_list = [qual.copy() for qual in candidate.get('qualifications', [])]

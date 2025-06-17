@@ -121,6 +121,7 @@ def initialize_manual_entry_form():
     st.session_state.form_desired_salary = ""
     st.session_state.form_highest_qualification = ""
     st.session_state.form_special_skills = ""
+    st.session_state.form_comments = ""  # New comments field
 
 def initialize_form_data(data):
     """Initialize form data from extracted CV data with enhanced experience structure"""
@@ -162,6 +163,7 @@ def initialize_form_data(data):
     st.session_state.form_desired_salary = data.get('desired_salary', '')
     st.session_state.form_highest_qualification = data.get('highest_qualification', '')
     st.session_state.form_special_skills = data.get('special_skills', '')
+    st.session_state.form_comments = data.get('comments', '')  # New comments field
 
 def show_candidate_form():
     if st.session_state.manual_entry_mode:
@@ -343,6 +345,19 @@ def show_candidate_form():
         value=st.session_state.form_special_skills, 
         height=100, 
         key="special_skills_input"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Comments Section - NEW
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 📝 Comments & Notes")
+    st.session_state.form_comments = st.text_area(
+        "Comments", 
+        value=st.session_state.form_comments, 
+        height=120, 
+        key="comments_input",
+        help="Add any additional notes, comments, or observations about this candidate",
+        placeholder="Enter any additional notes about the candidate, interview feedback, cultural fit observations, etc."
     )
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -582,7 +597,8 @@ def handle_candidate_save():
             'skills': clean_skills,
             'qualifications': clean_qualifications,
             'achievements': clean_achievements,
-            'special_skills': st.session_state.form_special_skills
+            'special_skills': st.session_state.form_special_skills,
+            'comments': st.session_state.form_comments  # New comments field
         }
         
         # Check if candidate already exists
