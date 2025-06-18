@@ -87,6 +87,11 @@ def show_candidate_edit_form():
     st.markdown('<div class="section-header"><h2>📝 Edit Candidate Information</h2></div>', unsafe_allow_html=True)
     st.markdown('<p style="color: #64748b; font-style: italic;">Edit candidate information and click Update to save changes to the database.</p>', unsafe_allow_html=True)
     
+    # Handle delete confirmation dialog
+    if st.session_state.show_delete_confirmation:
+        show_delete_confirmation_dialog()
+        return
+    
     # Personal Information Section
     st.markdown('<div class="form-section">', unsafe_allow_html=True)
     st.markdown("### 👤 Personal Information")
@@ -257,9 +262,22 @@ def show_candidate_edit_form():
     )
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Update button
+    # Comments Section - NEW
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 📝 Comments & Notes")
+    st.session_state.edit_comments = st.text_area(
+        "Comments", 
+        value=st.session_state.edit_comments, 
+        height=120, 
+        key="edit_comments_input",
+        help="Add any additional notes, comments, or observations about this candidate",
+        placeholder="Enter any additional notes about the candidate, interview feedback, cultural fit observations, etc."
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Update and Delete buttons
     st.markdown("---")
-    col_submit1, col_submit2, col_submit3 = st.columns([2, 1, 2])
+    col_submit1, col_submit2, col_submit3, col_submit4 = st.columns([2, 1, 1, 1])
     with col_submit1:
         st.markdown("*Fields marked with * are required")
     with col_submit2:
@@ -268,9 +286,79 @@ def show_candidate_edit_form():
                 handle_candidate_update()
             else:
                 st.error("❌ Please fill in at least Name and Email fields.")
+    with col_submit3:
+        if st.button("🗑️ Delete Candidate", use_container_width=True, key="delete_candidate_btn", help="Permanently delete this candidate from the database"):
+            st.session_state.show_delete_confirmation = True
+            st.rerun()
+
+def show_delete_confirmation_dialog():
+    """Show delete confirmation dialog"""
+    candidate = st.session_state.selected_candidate
+    
+    st.markdown('<div class="error-message">', unsafe_allow_html=True)
+    st.markdown("### ⚠️ Confirm Delete")
+    st.markdown(f"Are you sure you want to **permanently delete** the candidate **{candidate.get('name', 'Unknown')}** ({candidate.get('email', 'N/A')})?")
+    st.markdown("**This action cannot be undone!**")
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col2:
+        if st.button("✅ Yes, Delete", type="primary", use_container_width=True, key="confirm_delete_btn"):
+            handle_candidate_delete()
+    
+    with col3:
+        if st.button("❌ Cancel", use_container_width=True, key="cancel_delete_btn"):
+            st.session_state.show_delete_confirmation = False
+            st.rerun()
+
+def handle_candidate_delete():
+    """Handle candidate deletion with FORCED cloud sync"""
+    try:
+        candidate = st.session_state.selected_candidate
+        email = candidate.get('email')
+        
+        if not email:
+            st.error("❌ Cannot delete candidate: Email not found")
+            return
+        
+        # Delete from database with forced cloud sync
+        result, message = st.session_state.db_manager.delete_candidate(email)
+        
+        if result:
+            st.success("✅ Candidate deleted successfully!")
+            
+            # Clear session state
+            st.session_state.selected_candidate = None
+            st.session_state.show_delete_confirmation = False
+            st.session_state.current_page = 'main'
+            
+            # Clear cached search results so they refresh
+            st.session_state.cached_search_results = []
+            st.session_state.search_performed = False
+            
+            # Navigate back to search page
+            st.session_state.main_nav = "🔍 Search Candidates"
+            
+            # Show success message and auto-redirect
+            st.markdown("### ✅ Deletion Complete!")
+            st.info("Returning to search page...")
+            
+            # Use a delay to show the success message before redirecting
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error(f"❌ Failed to delete candidate: {message}")
+            st.session_state.show_delete_confirmation = False
+            st.rerun()
+            
+    except Exception as e:
+        st.error(f"❌ Error deleting candidate: {str(e)}")
+        st.session_state.show_delete_confirmation = False
+        st.rerun()
 
 def handle_candidate_update():
-    """Handle candidate update"""
+    """Handle candidate update with FORCED cloud sync"""
     try:
         # Clean up empty entries
         clean_qualifications = [q for q in st.session_state.edit_qualifications_list if q.get('qualification')]
@@ -305,14 +393,15 @@ def handle_candidate_update():
             'skills': clean_skills,
             'qualifications': clean_qualifications,
             'achievements': clean_achievements,
-            'special_skills': st.session_state.edit_special_skills
+            'special_skills': st.session_state.edit_special_skills,
+            'comments': st.session_state.edit_comments  # New comments field
         }
         
-        # Update candidate in database
+        # Update candidate in database with forced cloud sync
         result, message = st.session_state.db_manager.update_candidate(candidate_data)
         
         if result:
-            st.success("✅ Candidate updated successfully!")
+            st.success("✅ Candidate updated successfully and synced to cloud!")
             
             # Update the selected candidate data
             st.session_state.selected_candidate.update(candidate_data)
@@ -329,7 +418,7 @@ def handle_candidate_update():
                     st.session_state.current_page = 'main'
                     st.rerun()
             with col2:
-                st.info("Changes have been saved to the database.")
+                st.info("Changes have been saved to the database and synced to cloud.")
         else:
             st.error(f"❌ Failed to update candidate: {message}")
             
@@ -348,6 +437,7 @@ def initialize_edit_form_data(candidate):
     st.session_state.edit_desired_salary = candidate.get('desired_salary', '')
     st.session_state.edit_highest_qualification = candidate.get('highest_qualification', '')
     st.session_state.edit_special_skills = candidate.get('special_skills', '')
+    st.session_state.edit_comments = candidate.get('comments', '')  # Added comments field
     
     # Initialize lists - make copies to avoid reference issues
     st.session_state.edit_qualifications_list = [qual.copy() for qual in candidate.get('qualifications', [])]

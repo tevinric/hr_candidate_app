@@ -158,7 +158,7 @@ def initialize_manual_entry_form():
     form_fields = [
         'form_name', 'form_email', 'form_phone', 'form_current_role', 'form_industry',
         'form_notice_period', 'form_current_salary', 'form_desired_salary',
-        'form_highest_qualification', 'form_special_skills'
+        'form_highest_qualification', 'form_special_skills', 'form_comments'
     ]
     
     for field in form_fields:
@@ -181,6 +181,7 @@ def initialize_form_data_enhanced(data):
     st.session_state.form_desired_salary = data.get('desired_salary', '')
     st.session_state.form_highest_qualification = data.get('highest_qualification', '')
     st.session_state.form_special_skills = data.get('special_skills', '')
+    st.session_state.form_comments = data.get('comments', '')  # Initialize comments from data
     
     # Enhanced initialization of dynamic lists
     
@@ -255,6 +256,7 @@ def initialize_form_data_enhanced(data):
     logging.info(f"  - Skills: {len(st.session_state.skills_list)}")
     logging.info(f"  - Qualifications: {len(st.session_state.qualifications_list)}")
     logging.info(f"  - Achievements: {len(st.session_state.achievements_list)}")
+    logging.info(f"  - Comments: {st.session_state.form_comments[:30] + '...' if len(st.session_state.form_comments) > 30 else st.session_state.form_comments}")
 
 def show_candidate_form():
     if st.session_state.manual_entry_mode:
@@ -464,6 +466,19 @@ def show_candidate_form():
         height=100, 
         key="special_skills_input",
         help="Additional skills, certifications, languages, or unique abilities"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Comments Section - ADD THIS SECTION
+    st.markdown('<div class="form-section">', unsafe_allow_html=True)
+    st.markdown("### 📝 Comments & Notes")
+    st.session_state.form_comments = st.text_area(
+        "Comments", 
+        value=st.session_state.form_comments if hasattr(st.session_state, 'form_comments') else "",
+        height=120, 
+        key="form_comments_input",
+        help="Add any additional notes, comments, or observations about this candidate",
+        placeholder="Enter any additional notes about the candidate, interview feedback, cultural fit observations, etc."
     )
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -717,7 +732,8 @@ def handle_candidate_save():
             'skills': clean_skills,
             'qualifications': clean_qualifications,
             'achievements': clean_achievements,
-            'special_skills': st.session_state.form_special_skills.strip()
+            'special_skills': st.session_state.form_special_skills.strip(),
+            'comments': st.session_state.form_comments.strip() if hasattr(st.session_state, 'form_comments') else ''  # Add comments field
         }
         
         # Check if candidate already exists
