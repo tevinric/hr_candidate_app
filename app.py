@@ -916,6 +916,8 @@ def handle_candidate_update():
             with col1:
                 if st.button("⬅️ Back to Search Results", type="primary"):
                     st.session_state.current_page = 'main'
+                    # Set the sidebar to Search Candidates tab to return to search results
+                    st.session_state.main_nav = "🔍 Search Candidates"
                     st.rerun()
             with col2:
                 st.info("Changes have been saved to the database and synced to cloud.")
